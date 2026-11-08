@@ -26,6 +26,31 @@ and press **Q** to swap between brothers mid-level.
 
 P / Esc pauses, M mutes.
 
+## Playing online (each player on their own screen)
+
+Online play works the same way as Race Track Mayhem's online races. One screen **hosts**: it runs the real game
+and gets a 4-letter **room code**. The others **join** by typing that code (or tapping it, on the home network).
+Each screen can bring up to two keyboard players and any number of gamepads, up to 4 players total.
+Joined screens send their button presses to the host and draw what the host sends back, so everyone sees the same game.
+Players can also drop in mid-level by pressing FIRE on a gamepad or another screen.
+
+Pick **PLAY ONLINE** on the title screen, then **HOST A GAME** or **JOIN A GAME**. "Meet on" chooses where the screens find each other:
+
+- **Home network** (same house, no internet needed): on one computer run
+  ```
+  node server.js
+  ```
+  (needs [Node.js](https://nodejs.org), nothing else to install). It prints an address like
+  `http://192.168.1.23:8080`. Open that address on every computer or tablet in the house.
+  Open games are listed on the join screen, so kids can just tap one.
+  If Windows asks whether Node.js may use the network, choose **Allow** (Private networks).
+- **Internet** (different houses): no setup. This uses the same relay server on Cloudflare as Race Track Mayhem
+  (`wss://race-track-mayhem-relay.andrewsaulls.workers.dev`), which works from any copy of the game, even
+  `index.html` opened straight from a folder. To use a different relay, add `?relay=wss://your-relay` to the page
+  address, or change `INTERNET_RELAY` in `game.js`.
+
+Press ESC to leave an online game. If the host leaves, everyone else returns to the online menu.
+
 ## The heroes
 
 - **Noah**: fires pop-rockets that blow up dirt and bricks. His bomb is a **plushie bear** that bounces around and goes *KA-BEAR!*
@@ -46,6 +71,14 @@ P / Esc pauses, M mutes.
 2. Uranium Mines (teddy rocket ending)
 3. Plushie Factory (family dance party)
 4. Liberty Fortress: boss fight with **MEGA GRUMP 9000**
+
+## Files
+
+| File | What it is |
+|---|---|
+| `index.html` | The page. Open it to play. |
+| `game.js` | The whole game: levels, heroes, robots, drawing, sound, and online play. |
+| `server.js` | Optional home-network server: serves the game and passes messages between screens (same rules as Race Track Mayhem's `server/relay`). |
 
 ## Customize
 
