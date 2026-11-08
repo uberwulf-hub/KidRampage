@@ -6,15 +6,23 @@ Run right, smash the grumpy Grumbots, blast through walls, rescue the family, an
 ## How to play
 
 Open `index.html` in any web browser (double-click it). Nothing to install.
-Works with keyboard, gamepads (up to 2), and touch screens (on-screen buttons appear automatically).
 
-| | Solo | Co-op Player 1 | Co-op Player 2 |
-|---|---|---|---|
-| Move | Arrows / WASD | A / D | ← / → |
-| Jump (hold against a wall to **climb**) | Up / W / Space | W | ↑ |
-| Fire | Z / F / J | F | K |
-| Bomb | X / G / K | G | L |
-| Swap brother | Q | – | – |
+Choose **PLAY!**, then everyone joins on the **"Who is playing?"** screen (up to **4 players**):
+
+| Player device | Join | Move | Jump (hold on a wall to **climb**) | Fire | Bomb |
+|---|---|---|---|---|---|
+| Keyboard, left side | F | A / D | W | F | G |
+| Keyboard, right side | K | ← / → | ↑ | K | L |
+| Gamepad (any number) | A or X | stick / d-pad | A | X / triggers | B / Y |
+| Touch screen | tap | on-screen buttons | | | |
+
+On the join screen, press left/right to pick Noah or Elijah, press bomb to leave, and press ENTER or START to go.
+The keyboard fits two players, so players 3 and 4 need gamepads.
+If the same brother is picked twice, each copy gets a different outfit color.
+All players share one pool of lives, and more players means more starting lives.
+
+Playing alone? Just press ENTER twice. A solo player can use any keys (arrows or WASD, Z/X, Space)
+and press **Q** to swap between brothers mid-level.
 
 P / Esc pauses, M mutes.
 
@@ -27,7 +35,7 @@ P / Esc pauses, M mutes.
 
 - **Uranium barrels** (green) and **firework crates** (red/white/blue) explode in chain reactions.
 - **Cages**: free a family member for +1 life. They follow you to the flag.
-- **Crosses**: checkpoints. "Jesus loves you!" restores health and revives a fallen co-op partner.
+- **Crosses**: checkpoints. "Jesus loves you!" restores health and revives fallen teammates.
 - **Peace Dove**: a shield that makes you invincible for a while.
 - **Uranium crystals / teddy bears**: +1 bomb. **Hearts**: full health.
 - Falling in a pit only costs one heart, and you pop back to safe ground.

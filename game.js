@@ -102,15 +102,36 @@ canvas.addEventListener('touchend', handleTouches, { passive: false });
 canvas.addEventListener('touchcancel', handleTouches, { passive: false });
 canvas.addEventListener('mousedown', e => { initAudio(); if (state !== 'play') touchTap = toLogical(e); });
 
-function getInput(pi) {
-  const bind = mode === 2 ? (pi === 0 ? BINDS.p1 : BINDS.p2) : BINDS.solo;
+// Up to 4 players. Each one is driven by a "device": the left half of the keyboard,
+// the right half of the keyboard, a gamepad, or the touch screen.
+const MAX_PLAYERS = 4;
+const PCOL = ['#6fb6ff', '#f4d03f', '#5ee07a', '#ff6b6b'];
+const JOIN_KEYS = { kbL: ['KeyF', 'KeyZ', 'KeyJ', 'Space'], kbR: ['KeyK', 'KeyL', 'Numpad1'] };
+let party = []; // [{ dev, hero }] chosen on the join screen
+function padById(i) { const ps = navigator.getGamepads ? navigator.getGamepads() : []; const p = ps[i]; return p && p.connected ? p : null; }
+function devState(dev) {
   const st = {};
-  for (const k of ACTIONS) st[k] = bind[k].some(down);
-  const pads = gamepads();
-  const usePads = mode === 2 ? (pads[pi] ? [pads[pi]] : []) : pads;
-  for (const p of usePads) { const ps = padState(p); for (const k of ACTIONS) st[k] = st[k] || ps[k]; }
-  if (pi === 0 && touch.used) for (const k of ACTIONS) st[k] = st[k] || touch[k];
+  if (dev === 'kbL' || dev === 'kbR') {
+    const bind = dev === 'kbL' ? BINDS.p1 : BINDS.p2;
+    for (const k of ACTIONS) st[k] = bind[k].some(down);
+    st.join = JOIN_KEYS[dev].some(down); st.start = down('Enter');
+  } else if (dev === 'touch') {
+    for (const k of ACTIONS) st[k] = touch[k];
+  } else if (dev.startsWith('pad:')) {
+    const p = padById(+dev.slice(4));
+    if (p) { Object.assign(st, padState(p)); st.join = st.fire || st.up || st.start; }
+  }
   return st;
+}
+function getInput(pi) {
+  if (players.length === 1) { // a lone player can use any keys, any gamepad, or touch
+    const st = {};
+    for (const k of ACTIONS) st[k] = BINDS.solo[k].some(down);
+    for (const p of gamepads()) { const ps = padState(p); for (const k of ACTIONS) st[k] = st[k] || ps[k]; }
+    if (touch.used) for (const k of ACTIONS) st[k] = st[k] || touch[k];
+    return st;
+  }
+  return party[pi] ? devState(party[pi].dev) : {};
 }
 
 let prevMenu = {};
@@ -422,7 +443,7 @@ const FAMILY_LOOKS = [
 ];
 
 // ---------------------------------------------------------------- state
-let state = 'title', mode = 1, heroChoice = 'noah', levelIndex = 0, lives = START_LIVES, score = 0, levelStartScore = 0;
+let state = 'title', levelIndex = 0, lives = START_LIVES, score = 0, levelStartScore = 0;
 let level = null, players = [], enemies = [], projectiles = [], grenades = [], pickups = [], cages = [], crosses = [], followers = [];
 let particles = [], explosions = [], nukes = [], texts = [], rockets = [], pending = [], corpses = [];
 let boss = null, flag = null, camX = 0, camY = 0, shake = 0, flash = 0, flashColor = '#fff', banner = null;
@@ -645,7 +666,7 @@ class Player {
     if (this.carried) return;
     this.inv -= dt; this.shield -= dt; this.cool -= dt; this.muzzle -= dt;
 
-    if (pressed('swap') && mode === 1) {
+    if (pressed('swap') && players.length === 1) {
       this.hero = this.hero === 'noah' ? 'elijah' : 'noah';
       for (let i = 0; i < 16; i++) part(this.cx, this.cy, rand(-80, 80), rand(-80, 80), 0.5, pick(['#fff', '#ffd34d', '#39ff14']), 3, 0, 'sq', 3);
       popText(this.cx, this.y - 8, this.hero === 'noah' ? 'NOAH!' : 'ELIJAH!', this.hero === 'noah' ? '#6fb6ff' : '#f4d03f', 7);
@@ -679,7 +700,7 @@ class Player {
     if (ry !== 0) this.vy = 0;
     if (this.onGround && !wasGround) for (let i = 0; i < 3; i++) part(this.cx, this.y + this.h, rand(-30, 30), rand(-15, 0), 0.25, '#ccc', 2, 0, 'smoke');
 
-    if (mode === 2) this.x = clamp(this.x, camX + 2, camX + VW - this.w - 2);
+    if (players.length > 1) this.x = clamp(this.x, camX + 2, camX + VW - this.w - 2);
     if (this.onGround) {
       const ty = Math.floor((this.y + this.h + 2) / TILE), l = tileAt(Math.floor(this.x / TILE), ty), r = tileAt(Math.floor((this.x + this.w) / TILE), ty);
       if ((SOLID[l] || l === T.PLAT) && (SOLID[r] || r === T.PLAT)) this.safe = { x: this.x, y: this.y };
@@ -737,9 +758,9 @@ class Player {
 }
 
 function respawn(p, x, y) {
-  const other = players.find(o => o !== p && o.alive);
+  const other = pick(players.filter(o => o !== p && o.alive));
   if (x === undefined) {
-    if (other && mode === 2) { x = other.x; y = other.y - 4; } else { x = checkpoint.x; y = checkpoint.y; }
+    if (other) { x = other.x; y = other.y - 4; } else { x = checkpoint.x; y = checkpoint.y; }
   }
   Object.assign(p, { x, y, safe: null, vx: 0, vy: 0, hp: p.maxHp, alive: true, inv: 2.5, waiting: false, deadT: 0, specials: Math.max(p.specials, 2) });
   for (let i = 0; i < 18; i++) part(p.cx, p.cy, rand(-60, 60), rand(-90, 10), 0.6, pick(['#fff', '#ffd34d']), 2, 0, 'star', 2);
@@ -1142,23 +1163,28 @@ function updateCamera(dt, instant) {
 }
 
 // ---------------------------------------------------------------- game flow
+const startLives = () => START_LIVES + (party.length - 1) * 2;
+const heroVariant = i => party.slice(0, i).filter(q => q.hero === party[i].hero).length;
 function startGame() {
-  lives = START_LIVES; score = 0; rescuedAll = []; familyCounter = 0;
+  lives = startLives(); score = 0; rescuedAll = []; familyCounter = 0;
   levelIndex = startLevelSel;
   if (levelIndex === 0) { state = 'story'; stateT = 0; } else startLevel(levelIndex);
 }
 function startLevel(i) {
   levelIndex = i;
   const s = buildLevel(i);
-  if (mode === 2) players = [new Player(0, 'noah', s.x, s.y), new Player(1, 'elijah', s.x + 18, s.y)];
-  else players = [new Player(0, heroChoice, s.x, s.y)];
+  players = party.map((slot, i) => {
+    const p = new Player(i, slot.hero, s.x + i * 14, s.y);
+    p.v = heroVariant(i); // same brother picked twice? give them a different outfit
+    return p;
+  });
   levelStartScore = score; rescuedAtLevelStart = rescuedAll.length;
   updateCamera(0, true);
   state = 'intro'; stateT = 0; paused = false; cut = null;
   stopMusic();
 }
 function restartLevel() {
-  lives = START_LIVES; score = levelStartScore; rescuedAll = rescuedAll.slice(0, rescuedAtLevelStart);
+  lives = startLives(); score = levelStartScore; rescuedAll = rescuedAll.slice(0, rescuedAtLevelStart);
   familyCounter = rescuedAll.length;
   startLevel(levelIndex);
 }
@@ -1241,7 +1267,7 @@ function updateCutscene(dt, m) {
           for (let i = 0; i < 3; i++) part(b.x + 16 + rand(-6, 6), b.y + 44, rand(-30, 30), rand(60, 140), 0.6, pick(['#ffd34d', '#ff8c1a', '#fff']), 4, 0, 'sq', 1);
           part(b.x + 16, b.y + 50, rand(-20, 20), rand(20, 60), 1.5, '#ccc', 5, 0, 'smoke');
         }
-        heroes.forEach((p, i) => { p.x = b.x + 2 + i * 14; p.y = b.y - 18; p.facing = 1; });
+        heroes.forEach((p, i) => { p.x = b.x + 11 + (i - (heroes.length - 1) / 2) * 9; p.y = b.y - 18; p.facing = 1; });
         followers.forEach((f, i) => { f.x = b.x - 6 + (i % 4) * 12; f.y = b.y - 34 - Math.floor(i / 4) * 18; });
       }
     }
@@ -1283,6 +1309,7 @@ function updateState(dt) {
   if (m.mute) toggleMute();
   switch (state) {
     case 'title': updateTitle(dt, m); break;
+    case 'lobby': updateLobby(dt, m); break;
     case 'story': titleFx += dt; if (m.confirm && stateT > 0.4) startLevel(levelIndex); break;
     case 'intro':
       if ((m.confirm && stateT > 0.5) || stateT > 3) { state = 'play'; stateT = 0; startMusic(false); }
@@ -1303,7 +1330,7 @@ function updateState(dt) {
 }
 
 const MENU_Y = 88;
-const MENU = () => ['PLAY AS NOAH', 'PLAY AS ELIJAH', '2 PLAYERS (CO-OP)', 'START AT LEVEL ' + (startLevelSel + 1) + (unlocked > 1 ? '  < >' : '')];
+const MENU = () => ['PLAY!  (1-4 PLAYERS)', 'START AT LEVEL ' + (startLevelSel + 1) + (unlocked > 1 ? '  < >' : '')];
 function updateTitle(dt, m) {
   titleFx += dt;
   if (Math.random() < dt * 1.5) launchFirework(rand(40, VW - 40), VH);
@@ -1311,21 +1338,71 @@ function updateTitle(dt, m) {
   const n = MENU().length;
   if (m.up) { menuIdx = (menuIdx + n - 1) % n; SFX.hit(); }
   if (m.down) { menuIdx = (menuIdx + 1) % n; SFX.hit(); }
-  if (menuIdx === 3 && (m.left || m.right)) { startLevelSel = (startLevelSel + (m.right ? 1 : unlocked - 1)) % unlocked; SFX.hit(); }
+  if (menuIdx === 1 && (m.left || m.right)) { startLevelSel = (startLevelSel + (m.right ? 1 : unlocked - 1)) % unlocked; SFX.hit(); }
   if (m.tap) {
     for (let i = 0; i < n; i++) if (Math.abs(m.tap.y - (MENU_Y + 4 + i * 16)) < 8) {
-      if (i === 3) { startLevelSel = (startLevelSel + 1) % unlocked; menuIdx = 3; return; }
+      if (i === 1) { startLevelSel = (startLevelSel + 1) % unlocked; menuIdx = 1; return; }
       menuIdx = i;
     }
     if (m.tap.y < MENU_Y - 6 || m.tap.y > MENU_Y + n * 16) return; // ignore taps outside the menu
   }
   if (m.confirm && stateT > 0.3) {
-    if (menuIdx === 3) { startLevelSel = (startLevelSel + 1) % unlocked; return; }
-    mode = menuIdx === 2 ? 2 : 1;
-    heroChoice = menuIdx === 1 ? 'elijah' : 'noah';
-    SFX.pickup();
-    startGame();
+    if (menuIdx === 1) { startLevelSel = (startLevelSel + 1) % unlocked; return; }
+    openLobby(m.tap);
   }
+}
+
+// ---------------------------------------------------------------- join screen ("lobby")
+let lobbyPrev = {};
+function lobbyDevices() {
+  const d = ['kbL', 'kbR'];
+  for (const p of gamepads()) d.push('pad:' + p.index);
+  if (touch.used) d.push('touch');
+  return d;
+}
+function joinParty(dev) {
+  if (party.length >= MAX_PLAYERS || party.some(q => q.dev === dev)) return;
+  const noahs = party.filter(q => q.hero === 'noah').length;
+  party.push({ dev, hero: noahs <= party.length - noahs ? 'noah' : 'elijah' });
+  SFX.pickup();
+}
+function openLobby(tap) {
+  party = []; lobbyPrev = { esc: true };
+  // whoever pressed the button on the title screen is Player 1
+  const devs = lobbyDevices();
+  let first = tap && touch.used ? 'touch' : devs.find(d => { const st = devState(d); return st.join || st.start; });
+  if (!first && !tap) first = 'kbL';
+  if (first) joinParty(first);
+  for (const d of devs) lobbyPrev[d] = devState(d); // so the same press doesn't count twice
+  state = 'lobby'; stateT = 0;
+}
+function updateLobby(dt, m) {
+  titleFx += dt;
+  updateFx(dt);
+  let go = false;
+  for (const dev of lobbyDevices()) {
+    const st = devState(dev), pv = lobbyPrev[dev] || {}; lobbyPrev[dev] = st;
+    const e = k => st[k] && !pv[k];
+    const slot = party.find(q => q.dev === dev);
+    if (!slot) {
+      if (e('join')) joinParty(dev);
+      else if (e('start') && !party.length) { joinParty(dev); go = true; }
+      continue;
+    }
+    if (e('left') || e('right')) { slot.hero = slot.hero === 'noah' ? 'elijah' : 'noah'; SFX.swap(); }
+    if (e('special')) { party.splice(party.indexOf(slot), 1); SFX.hurt(); continue; }
+    if (e('start') && stateT > 0.3) go = true;
+  }
+  if (m.tap) {
+    const touchSlot = party.find(q => q.dev === 'touch');
+    if (m.tap.y > 200 && party.length) go = true;
+    else if (touch.used && !touchSlot) joinParty('touch');
+    else if (touchSlot) { touchSlot.hero = touchSlot.hero === 'noah' ? 'elijah' : 'noah'; SFX.swap(); }
+  }
+  const esc = down('Escape');
+  if (esc && !lobbyPrev.esc) { state = 'title'; stateT = 0; return; }
+  lobbyPrev.esc = esc;
+  if (go && party.length) startGame();
 }
 
 // =====================================================================
@@ -1353,30 +1430,42 @@ function legs(p, fr, air, pants, shoes, x1 = 3, x2 = 8) {
   const o = [0, 1, 0, -1][fr];
   p(x1 + o, 15, 3, 3, pants); p(x2 - o, 15, 3, 3, pants); p(x1 + o, 18, 3, 2, shoes); p(x2 - o, 18, 3, 2, shoes);
 }
-function drawNoah(x, y, f, anim, moving, air, muzzle) {
-  const p = px(x, y, 14, f), fr = moving ? Math.floor(anim * 12) % 4 : 0;
+const NOAH_PAL = [
+  { band: '#d62828', shirt: '#2a6fdb', hair: '#6b3e1f', pants: '#1d3557' },
+  { band: '#2e9e44', shirt: '#e67e22', hair: '#2b1a0e', pants: '#3b2a1a' },
+  { band: '#8e44ad', shirt: '#ecf0f1', hair: '#c08a3e', pants: '#2c3e50' },
+  { band: '#111111', shirt: '#c0392b', hair: '#3b2414', pants: '#222222' },
+];
+const ELIJAH_PAL = [
+  { suit: '#f4d03f', suit2: '#c9a227', hand: '#d4ac0d' },
+  { suit: '#ff8c42', suit2: '#cc6a2a', hand: '#b85a1f' },
+  { suit: '#e8eef2', suit2: '#aab4bc', hand: '#9aa4ac' },
+  { suit: '#b388ff', suit2: '#7e57c2', hand: '#6a48a8' },
+];
+function drawNoah(x, y, f, anim, moving, air, muzzle, v = 0) {
+  const p = px(x, y, 14, f), fr = moving ? Math.floor(anim * 12) % 4 : 0, C = NOAH_PAL[v % 4];
   p(0, 7, 4, 6, '#a0662f'); p(0, 6, 1, 1, '#a0662f'); p(3, 6, 1, 1, '#a0662f'); p(1, 9, 2, 2, '#e8c39e'); p(1, 8, 1, 1, '#222'); // plushie backpack
-  legs(p, fr, air, '#1d3557', '#222');
-  p(3, 8, 8, 7, '#2a6fdb'); p(6, 10, 2, 2, '#fff');
-  p(4, 1, 7, 7, '#f1c27d'); p(4, 0, 7, 2, '#6b3e1f'); p(3, 1, 1, 3, '#6b3e1f');
-  p(3, 2, 9, 2, '#d62828'); p(1, 3, 2, 1, '#d62828'); p(0, 4, 2, 1, '#d62828');
+  legs(p, fr, air, C.pants, '#222');
+  p(3, 8, 8, 7, C.shirt); p(6, 10, 2, 2, v === 2 ? '#d62828' : '#fff');
+  p(4, 1, 7, 7, '#f1c27d'); p(4, 0, 7, 2, C.hair); p(3, 1, 1, 3, C.hair);
+  p(3, 2, 9, 2, C.band); p(1, 3, 2, 1, C.band); p(0, 4, 2, 1, C.band);
   p(9, 4, 1, 2, '#222'); p(8, 6, 2, 1, '#b5651d');
   p(6, 9, 8, 3, '#556b2f'); p(13, 8, 1, 5, '#2b2b2b'); p(5, 11, 2, 2, '#f1c27d'); p(8, 8, 2, 1, '#ff4d4d');
   if (muzzle) { p(14, 8, 3, 5, '#ffd34d'); p(17, 9, 2, 3, '#fff3b0'); }
 }
-function drawElijah(x, y, f, anim, moving, air, muzzle) {
-  const p = px(x, y, 14, f), fr = moving ? Math.floor(anim * 12) % 4 : 0;
+function drawElijah(x, y, f, anim, moving, air, muzzle, v = 0) {
+  const p = px(x, y, 14, f), fr = moving ? Math.floor(anim * 12) % 4 : 0, C = ELIJAH_PAL[v % 4];
   const glow = (Math.sin(gtime * 8) + 1) / 2 > 0.5 ? '#39ff14' : '#7dff5a';
   p(0, 7, 3, 7, '#1b5e20'); p(1, 8, 1, 5, glow);
-  legs(p, fr, air, '#c9a227', '#333');
-  p(3, 7, 9, 8, '#f4d03f'); p(5, 9, 3, 3, '#222'); p(6, 10, 1, 1, '#f4d03f');
-  p(3, 0, 9, 7, '#f4d03f'); p(5, 2, 7, 4, '#9fffbf'); p(9, 3, 1, 2, '#0a3d1a'); p(7, 3, 1, 2, '#0a3d1a'); p(8, 5, 2, 1, '#0a3d1a');
+  legs(p, fr, air, C.suit2, '#333');
+  p(3, 7, 9, 8, C.suit); p(5, 9, 3, 3, '#222'); p(6, 10, 1, 1, C.suit);
+  p(3, 0, 9, 7, C.suit); p(5, 2, 7, 4, '#9fffbf'); p(9, 3, 1, 2, '#0a3d1a'); p(7, 3, 1, 2, '#0a3d1a'); p(8, 5, 2, 1, '#0a3d1a');
   p(6, -2, 1, 2, '#888'); p(5, -3, 3, 1, glow);
-  p(6, 10, 7, 2, '#c0c0c0'); p(12, 9, 2, 4, glow); p(5, 11, 2, 2, '#d4ac0d');
+  p(6, 10, 7, 2, '#c0c0c0'); p(12, 9, 2, 4, glow); p(5, 11, 2, 2, C.hand);
   if (muzzle) { p(14, 8, 3, 5, '#b6ff6e'); p(17, 9, 2, 3, '#fff'); }
 }
-function drawHero(hero, x, y, f, anim, moving, air, muzzle) {
-  (hero === 'noah' ? drawNoah : drawElijah)(x, y, f, anim, moving, air, muzzle);
+function drawHero(hero, x, y, f, anim, moving, air, muzzle, v = 0) {
+  (hero === 'noah' ? drawNoah : drawElijah)(x, y, f, anim, moving, air, muzzle, v);
 }
 function drawPerson(x, y, f, look, anim, moving, air) {
   const L = FAMILY_LOOKS[look % FAMILY_LOOKS.length];
@@ -1604,7 +1693,7 @@ function drawWorld() {
     if (!p.alive) {
       if (p.deadT > 0) {
         ctx.globalAlpha = 0.5;
-        drawHero(p.hero, Math.round(p.x) - 2, Math.round(p.y + p.ghostY), p.facing, 0, false, false, false);
+        drawHero(p.hero, Math.round(p.x) - 2, Math.round(p.y + p.ghostY), p.facing, 0, false, false, false, p.v);
         ctx.globalAlpha = 0.9; ctx.strokeStyle = '#ffd34d'; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.ellipse(Math.round(p.cx), Math.round(p.y + p.ghostY) - 4, 6, 2, 0, 0, Math.PI * 2); ctx.stroke();
         ctx.globalAlpha = 1;
@@ -1617,8 +1706,8 @@ function drawWorld() {
       ctx.strokeStyle = '#ffd34d'; ctx.beginPath(); ctx.ellipse(p.cx, p.y - 4, 6, 2, 0, 0, Math.PI * 2); ctx.stroke();
       if (Math.random() < 0.3) part(p.cx + rand(-10, 10), p.cy + rand(-10, 10), 0, -20, 0.4, '#fff', 1.5, 0, 'star');
     }
-    drawHero(p.hero, Math.round(p.x) - 2, Math.round(p.y), p.facing, p.anim, p.moving && p.onGround, !p.onGround && !p.carried, p.muzzle > 0);
-    if (mode === 2) text(p.idx === 0 ? 'P1' : 'P2', Math.round(p.cx), Math.round(p.y) - 9, { size: 4, color: p.idx === 0 ? '#6fb6ff' : '#f4d03f', align: 'center' });
+    drawHero(p.hero, Math.round(p.x) - 2, Math.round(p.y), p.facing, p.anim, p.moving && p.onGround, !p.onGround && !p.carried, p.muzzle > 0, p.v);
+    if (players.length > 1) text('P' + (p.idx + 1), Math.round(p.cx), Math.round(p.y) - 9, { size: 4, color: PCOL[p.idx], align: 'center' });
   }
   for (const g of grenades) {
     ctx.save(); ctx.translate(Math.round(g.x + 4), Math.round(g.y + 4)); ctx.rotate(g.spin);
@@ -1705,22 +1794,25 @@ function drawNuke(n) {
 // ---- HUD
 function drawHUD() {
   players.forEach((p, i) => {
-    const right = i === 1, x = right ? VW - 118 : 4;
-    ctx.globalAlpha = 0.55; R(x, 4, 114, 28, '#000'); ctx.globalAlpha = 1;
-    ctx.save(); ctx.beginPath(); ctx.rect(x + 2, 6, 18, 24); ctx.clip();
-    R(x + 2, 6, 18, 24, p.hero === 'noah' ? '#1d3557' : '#3d3a10');
-    drawHero(p.hero, x + 4, 10, 1, 0, false, false, false);
+    // P1 top-left, P2 top-right, P3 under P1, P4 under P2
+    const x = i % 2 ? VW - 118 : 4, y = 4 + Math.floor(i / 2) * 30, multi = players.length > 1;
+    ctx.globalAlpha = 0.55; R(x, y, 114, 28, '#000'); ctx.globalAlpha = 1;
+    if (multi) { R(x, y, 114, 1, PCOL[i]); R(x, y + 27, 114, 1, PCOL[i]); }
+    ctx.save(); ctx.beginPath(); ctx.rect(x + 2, y + 2, 18, 24); ctx.clip();
+    R(x + 2, y + 2, 18, 24, p.hero === 'noah' ? '#1d3557' : '#3d3a10');
+    drawHero(p.hero, x + 4, y + 6, 1, 0, false, false, false, p.v);
     ctx.restore();
-    text(p.hero === 'noah' ? 'NOAH' : 'ELIJAH', x + 24, 7, { size: 6, color: p.hero === 'noah' ? '#6fb6ff' : '#f4d03f' });
-    for (let h = 0; h < p.maxHp; h++) heart(x + 24 + h * 10, 16, h < p.hp && p.alive ? '#ff3b5c' : '#444', 1);
-    for (let s = 0; s < p.specials; s++) { if (p.hero === 'noah') drawTeddy(x + 60 + s * 10, 15, 0.8); else drawCrystal(x + 60 + s * 10, 15, 0.8); }
-    if (!p.alive && p.waiting) text('WAITING...', x + 60, 7, { size: 4, color: '#aaa' });
-    if (p.shield > 0) text('SHIELD ' + Math.ceil(p.shield), x + 66, 7, { size: 4, color: '#fff' });
+    const name = p.hero === 'noah' ? 'NOAH' : 'ELIJAH';
+    text(multi ? 'P' + (i + 1) + ' ' + name : name, x + 24, y + 3, { size: 6, color: multi ? PCOL[i] : p.hero === 'noah' ? '#6fb6ff' : '#f4d03f' });
+    for (let h = 0; h < p.maxHp; h++) heart(x + 24 + h * 10, y + 12, h < p.hp && p.alive ? '#ff3b5c' : '#444', 1);
+    for (let s = 0; s < p.specials; s++) { if (p.hero === 'noah') drawTeddy(x + 60 + s * 10, y + 11, 0.8); else drawCrystal(x + 60 + s * 10, y + 11, 0.8); }
+    if (!p.alive && p.waiting) text('WAITING', x + 24, y + 21, { size: 4, color: '#aaa' });
+    if (p.shield > 0) text('SHIELD ' + Math.ceil(p.shield), x + 60, y + 21, { size: 4, color: '#fff' });
   });
   const cx = VW / 2;
   text('LIVES ' + lives, cx, 5, { size: 6, color: '#fff', align: 'center' });
   text(String(score).padStart(7, '0'), cx, 14, { size: 6, color: '#ffd34d', align: 'center' });
-  if (mode === 1) text('Q: SWAP BROTHER', cx, 24, { size: 4, color: '#bbb', align: 'center' });
+  if (players.length === 1) text('Q: SWAP BROTHER', cx, 24, { size: 4, color: '#bbb', align: 'center' });
   if (boss && boss.alive && boss.state !== 'sleep') {
     R(VW / 2 - 101, 38, 202, 8, '#000'); R(VW / 2 - 100, 39, 200 * boss.hp / boss.maxHp, 6, '#e63946');
     text('MEGA GRUMP 9000', VW / 2, 48, { size: 5, color: '#ff8a8a', align: 'center' });
@@ -1738,7 +1830,7 @@ function drawTouch() {
   if (!touch.used || state !== 'play') return;
   const labels = { left: '<', right: '>', up: 'JUMP', fire: 'FIRE', special: 'BOMB', swap: 'SWAP' };
   for (const b of TBTN) {
-    if (b.k === 'swap' && mode !== 1) continue;
+    if (b.k === 'swap' && players.length !== 1) continue;
     ctx.globalAlpha = touch[b.k] ? 0.55 : 0.28; circle(b.x, b.y, b.r, '#fff'); ctx.globalAlpha = 0.9;
     text(labels[b.k], b.x, b.y - (b.r > 20 ? 4 : 3), { size: b.r > 20 ? 7 : 5, color: '#000', shadow: false, align: 'center' });
   }
@@ -1767,12 +1859,10 @@ function drawTitle() {
     const sel = i === menuIdx;
     text((sel ? '> ' : '  ') + s, VW / 2 - 100, MENU_Y + i * 16, { size: 7, color: sel ? '#ffd34d' : '#ddd' });
   });
-  const help = mode === 2 || menuIdx === 2
-    ? 'P1: WASD + F fire, G bomb   P2: ARROWS + K fire, L bomb'
-    : 'MOVE: ARROWS/WASD  JUMP: UP/SPACE  FIRE: Z/F  BOMB: X/G';
+  const help = 'MOVE: ARROWS/WASD  JUMP: UP/SPACE  FIRE: Z/F  BOMB: X/G';
   ctx.globalAlpha = 0.6; R(0, 238, VW, 34, '#000'); ctx.globalAlpha = 1;
   text(help, VW / 2, 242, { size: 5, color: '#fff', align: 'center' });
-  text('Hold JUMP against a wall to climb!  Gamepads work too.  M = mute', VW / 2, 254, { size: 4, color: '#bbb', align: 'center' });
+  text('Hold JUMP on a wall to climb!  Up to 4 players with gamepads.  M = mute', VW / 2, 254, { size: 4, color: '#bbb', align: 'center' });
   text('ENTER to start', VW / 2, 262, { size: 4, color: '#ffd34d', align: 'center' });
 }
 function drawStory() {
@@ -1823,12 +1913,13 @@ function drawVictory() {
   text('The family is safe, the plushies are home,', VW / 2, 104, { size: 6, align: 'center' });
   text('and the fireworks light up the sky!', VW / 2, 114, { size: 6, align: 'center' });
   R(0, 210, VW, 62, '#2e7d32');
-  const all = [{ hero: 'noah' }, { hero: 'elijah' }, ...rescuedAll.map(l => ({ look: l }))];
+  const heroes = players.length ? players.map(p => ({ hero: p.hero, v: p.v || 0 })) : [{ hero: 'noah', v: 0 }, { hero: 'elijah', v: 0 }];
+  const all = [...heroes, ...rescuedAll.map(l => ({ look: l }))];
   const spacing = Math.min(30, (VW - 40) / all.length), x0 = VW / 2 - (all.length - 1) * spacing / 2;
   all.forEach((a, i) => {
     const hop = Math.max(0, Math.sin(stateT * 6 + i * 1.3)) * 8;
     const f = Math.sin(stateT * 3 + i) > 0 ? 1 : -1;
-    if (a.hero) drawHero(a.hero, x0 + i * spacing - 7, 190 - hop, f, stateT, false, hop > 1, false);
+    if (a.hero) drawHero(a.hero, x0 + i * spacing - 7, 190 - hop, f, stateT, false, hop > 1, false, a.v);
     else drawPerson(x0 + i * spacing - 6, 192 - hop, f, a.look, stateT, false, hop > 1);
   });
   text('JESUS LOVES YOU!', VW / 2, 140, { size: 10, color: '#fff3b0', align: 'center' });
@@ -1837,10 +1928,53 @@ function drawVictory() {
   if (stateT > 2 && Math.floor(gtime * 2) % 2) text('PRESS ENTER TO PLAY AGAIN', VW / 2, 246, { size: 6, color: '#ffd34d', align: 'center' });
 }
 
+function devLabel(dev) {
+  if (dev === 'kbL') return party.length === 1 ? 'KEYBOARD' : 'WASD  F=FIRE G=BOMB';
+  if (dev === 'kbR') return 'ARROWS  K=FIRE L=BOMB';
+  if (dev === 'touch') return 'TOUCH SCREEN';
+  return 'GAMEPAD';
+}
+function drawLobby() {
+  drawBackground();
+  ctx.globalAlpha = 0.45; R(0, 0, VW, VH, '#000'); ctx.globalAlpha = 1;
+  for (const p of particles) { ctx.globalAlpha = Math.min(1, p.life / p.max * 1.5); R(p.x - 1, p.y - 1, p.size, p.size, p.color); }
+  ctx.globalAlpha = 1;
+  text('WHO IS PLAYING?', VW / 2, 10, { size: 14, color: '#ffd34d', align: 'center' });
+  text('Press FIRE to join - up to 4 players!', VW / 2, 30, { size: 6, align: 'center' });
+  for (let i = 0; i < MAX_PLAYERS; i++) {
+    const x = 12 + i * 116, y = 44, w = 108, h = 150, cx = x + w / 2, slot = party[i];
+    ctx.globalAlpha = slot ? 0.75 : 0.4; R(x, y, w, h, '#0b0b18'); ctx.globalAlpha = 1;
+    R(x, y, w, 2, PCOL[i]); R(x, y + h - 2, w, 2, PCOL[i]); R(x, y, 2, h, PCOL[i]); R(x + w - 2, y, 2, h, PCOL[i]);
+    text('P' + (i + 1), cx, y + 8, { size: 8, color: PCOL[i], align: 'center' });
+    if (slot) {
+      const v = heroVariant(i), hop = Math.max(0, Math.sin(titleFx * 5 + i)) * 4;
+      ctx.save(); ctx.translate(cx - 21, y + 26 - hop); ctx.scale(3, 3); drawHero(slot.hero, 0, 0, 1, titleFx, false, false, false, v); ctx.restore();
+      text('< ' + (slot.hero === 'noah' ? 'NOAH' : 'ELIJAH') + ' >', cx, y + 96, { size: 7, color: slot.hero === 'noah' ? '#6fb6ff' : '#f4d03f', align: 'center' });
+      text(devLabel(slot.dev), cx, y + 114, { size: 4, color: '#ccc', align: 'center' });
+      text('LEFT/RIGHT: pick', cx, y + 126, { size: 4, color: '#888', align: 'center' });
+      text('BOMB: leave', cx, y + 135, { size: 4, color: '#888', align: 'center' });
+    } else {
+      if (Math.floor(gtime * 2 + i) % 2) text('PRESS FIRE', cx, y + 56, { size: 6, align: 'center' });
+      text('TO JOIN', cx, y + 68, { size: 6, align: 'center' });
+      text('Left keys: F', cx, y + 96, { size: 4, color: '#aaa', align: 'center' });
+      text('Right keys: K', cx, y + 106, { size: 4, color: '#aaa', align: 'center' });
+      text('Gamepad: A or X', cx, y + 116, { size: 4, color: '#aaa', align: 'center' });
+      if (touch.used) text('Touch: tap here', cx, y + 126, { size: 4, color: '#aaa', align: 'center' });
+    }
+  }
+  if (party.length) {
+    ctx.globalAlpha = 0.7; R(VW / 2 - 110, 204, 220, 22, '#1d5fd8'); ctx.globalAlpha = 1;
+    text(party.length === 1 ? 'GO!  (ENTER / START)' : party.length + ' PLAYERS - GO!  (ENTER / START)', VW / 2, 211, { size: 6, color: '#fff', align: 'center' });
+  }
+  text('ESC = back     Players 3 & 4 need gamepads', VW / 2, 238, { size: 5, color: '#ccc', align: 'center' });
+  text('All players share the lives. Rescue family for more!', VW / 2, 252, { size: 4, color: '#aaa', align: 'center' });
+}
+
 function render() {
   ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
   ctx.imageSmoothingEnabled = false;
   if (state === 'title') { drawTitle(); return; }
+  if (state === 'lobby') { drawLobby(); return; }
   if (state === 'story') { drawStory(); return; }
   if (state === 'victory') { drawVictory(); return; }
   drawBackground();
@@ -1882,7 +2016,10 @@ requestAnimationFrame(frame);
 window.BOOM = {
   get state() { return state; }, get players() { return players; }, get enemies() { return enemies; }, get boss() { return boss; },
   get level() { return level; }, get lives() { return lives; }, get score() { return score; }, get camX() { return camX; },
-  start(levelNum = 1, m = 1, hero = 'noah') { mode = m; heroChoice = hero; startLevelSel = levelNum - 1; lives = START_LIVES; score = 0; rescuedAll = []; startLevel(levelNum - 1); state = 'play'; },
+  get party() { return party; },
+  start(levelNum = 1, n = 1, hero = 'noah') {
+    party = Array.from({ length: n }, (_, i) => ({ dev: ['kbL', 'kbR', 'none', 'none'][i], hero: n === 1 ? hero : i % 2 ? 'elijah' : 'noah' }));
+    startLevelSel = levelNum - 1; lives = startLives(); score = 0; rescuedAll = []; startLevel(levelNum - 1); state = 'play'; },
   teleport(x) { for (const p of players) { p.x = x; p.y = 40; } updateCamera(0, true); },
   setState(s) { state = s; stateT = 0; },
 };
