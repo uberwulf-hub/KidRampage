@@ -2023,6 +2023,27 @@ function drawLobby() {
   text('All players share the lives. Rescue family for more!', VW / 2, 252, { size: 4, color: '#aaa', align: 'center' });
 }
 
+// The store icon (store/icon.png): the brothers in front of a big KA-BOOM and the flag.
+// Drawn in the 272x272 square in the middle of the screen. tools/make-icon.js snaps it.
+function drawIcon() {
+  ctx.save(); ctx.translate((VW - VH) / 2, 0);
+  const S = VH;
+  const g = ctx.createLinearGradient(0, 0, 0, S); g.addColorStop(0, '#2f7fe0'); g.addColorStop(1, '#8fd6ff');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 16; i++) { // sunburst
+    ctx.fillStyle = i % 2 ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.0)';
+    ctx.beginPath(); ctx.moveTo(S / 2, 150);
+    const a0 = i / 16 * Math.PI * 2, a1 = (i + 1) / 16 * Math.PI * 2;
+    ctx.lineTo(S / 2 + Math.cos(a0) * 400, 150 + Math.sin(a0) * 400); ctx.lineTo(S / 2 + Math.cos(a1) * 400, 150 + Math.sin(a1) * 400); ctx.fill();
+  }
+  circle(S / 2, 132, 104, '#ff8c1a'); circle(S / 2, 132, 80, '#ffd34d'); circle(S / 2, 132, 50, '#fff3b0');
+  drawFlagCloth(S / 2 - 54, 18, 108, 60, true);
+  R(0, S - 40, S, 40, '#4caf50'); R(0, S - 34, S, 34, '#8b5a2b');
+  ctx.save(); ctx.translate(22, S - 40 - 120); ctx.scale(6, 6); drawNoah(0, 0, 1, 0, false, false, true, 0); ctx.restore();
+  ctx.save(); ctx.translate(S - 22 - 84, S - 40 - 120); ctx.scale(6, 6); drawElijah(0, 0, -1, 0, false, false, true, 0); ctx.restore();
+  ctx.restore();
+}
+
 function render() {
   NET.fxLocal = true; // anything drawn here is local decoration, not a game event
   try { renderInner(); } finally { NET.fxLocal = false; }
@@ -2030,6 +2051,7 @@ function render() {
 function renderInner() {
   ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
   ctx.imageSmoothingEnabled = false;
+  if (state === 'icon') { drawIcon(); return; }
   if (state === 'title') { drawTitle(); return; }
   if (state === 'lobby') { drawLobby(); return; }
   if (state === 'online') { drawOnlineMenu(); return; }
@@ -2489,5 +2511,6 @@ window.BOOM = {
     startLevelSel = levelNum - 1; lives = startLives(); score = 0; rescuedAll = []; startLevel(levelNum - 1); state = 'play'; },
   teleport(x) { for (const p of players) { p.x = x; p.y = 40; } updateCamera(0, true); },
   setState(s) { state = s; stateT = 0; },
+  showIcon() { gtime = 0.3; state = 'icon'; },
 };
 })();
