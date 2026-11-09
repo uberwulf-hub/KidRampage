@@ -2071,7 +2071,15 @@ function renderInner() {
 //   INTERNET:     the Cloudflare relay below, for players in different houses
 // =====================================================================
 const RELAY_PROTOCOL = 1;
-const INTERNET_RELAY = new URLSearchParams(location.search).get('relay') || 'wss://race-track-mayhem-relay.andrewsaulls.workers.dev';
+// Internet game servers, tried in order. The first is Boom Brothers' own relay
+// (server/relay, deployed by the "Relay server" GitHub workflow). If it can't be
+// reached at all (e.g. not deployed yet), Race Track Mayhem's relay is used: same rules.
+// Add ?relay=wss://... to the page address to use a different one.
+const RELAY_OVERRIDE = new URLSearchParams(location.search).get('relay');
+const INTERNET_RELAYS = RELAY_OVERRIDE ? [RELAY_OVERRIDE] : [
+  'wss://boom-brothers-relay.andrewsaulls.workers.dev',
+  'wss://race-track-mayhem-relay.andrewsaulls.workers.dev',
+];
 const GAME_TAG = 'BoomBrothers', NET_VERSION = 1;
 const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I or O (same as the relay's codes)
 const SNAP_RATE = 1 / 20;
@@ -2103,8 +2111,8 @@ function netCheckHomeServer() {
   }).catch(() => {});
 }
 netCheckHomeServer();
-function relayBase() {
-  return NET.server === 'home' ? (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host : INTERNET_RELAY;
+function relayBase(i = 0) {
+  return NET.server === 'home' ? (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host : INTERNET_RELAYS[i];
 }
 const textEnc = new TextEncoder(), textDec = new TextDecoder();
 function sendBin(target, obj) {
@@ -2114,18 +2122,26 @@ function sendBin(target, obj) {
   new DataView(buf.buffer).setInt32(0, target, true); buf[4] = 0; buf.set(body, 5);
   ws.send(buf);
 }
-function netConnect(asHost, code) {
+function netConnect(asHost, code, relayIdx = 0) {
   netClose();
   NET.lastError = ''; NET.msg = '';
   let ws;
-  try { ws = new WebSocket(relayBase() + (asHost ? '/host' : '/join/' + code) + '?v=' + RELAY_PROTOCOL); }
+  try { ws = new WebSocket(relayBase(relayIdx) + (asHost ? '/host' : '/join/' + code) + '?v=' + RELAY_PROTOCOL); }
   catch (e) { NET.msg = 'COULD NOT CONNECT'; return; }
+  let opened = false;
+  ws.onopen = () => { opened = true; };
   ws.binaryType = 'arraybuffer';
   Object.assign(NET, { ws, joinT: 10, gotSnap: false, code: '', escPrev: true,
     waitMsg: asHost ? 'STARTING AN ONLINE GAME...' : 'JOINING GAME ' + code + '...' });
   state = 'netwait'; stateT = 0;
   ws.onmessage = e => { if (NET.ws === ws) netOnMessage(e.data); };
-  ws.onclose = e => { if (NET.ws === ws) { NET.ws = null; netLost(CLOSE_MSG[e.code] || NET.lastError || e.reason || ''); } };
+  ws.onclose = e => {
+    if (NET.ws !== ws) return;
+    NET.ws = null;
+    // Never reached this server at all? Quietly try the next one.
+    if (!opened && NET.server === 'internet' && relayIdx + 1 < INTERNET_RELAYS.length) { netConnect(asHost, code, relayIdx + 1); return; }
+    netLost(CLOSE_MSG[e.code] || NET.lastError || e.reason || '');
+  };
 }
 // The relay may be shared with Race Track Mayhem, so we use our own words for its close codes.
 const CLOSE_MSG = { 4001: 'THE HOST REMOVED YOU', 4002: 'THE HOST LEFT THE GAME', 4003: 'THAT GAME IS FULL', 4004: 'NO GAME WITH THAT CODE - CHECK THE LETTERS!', 4005: 'THE SERVER IS A DIFFERENT VERSION' };

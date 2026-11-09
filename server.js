@@ -11,13 +11,9 @@
    2. Is a "relay": one player HOSTS and gets a 4-letter room code, the others
       JOIN with that code, and the relay passes their messages along.
 
-   The relay follows the same rules and message format as Race Track Mayhem's
-   relay (uberwulf-hub/Race-Track-Mayhem, server/relay/relay-core.mjs), so the
-   game can also use that relay on Cloudflare for playing between houses.
-   - JSON text from the relay: welcome {id, code, peers}, join {id}, leave {id}, error {msg}
-   - JSON text to the relay: kick {id} (host only)
-   - Binary game data: [int32 little-endian peer id][1 channel byte][packet]
-     sent with who it's for (0 = everyone else), delivered with who it's from.
+   The relay rules are in server/relay/relay-core.mjs, the same file the
+   Cloudflare version (server/relay/worker.mjs) uses for playing between houses.
+   They match Race Track Mayhem's relay.
    ===================================================================== */
 const http = require('http');
 const fs = require('fs');
@@ -26,55 +22,15 @@ const crypto = require('crypto');
 const os = require('os');
 
 const PORT = Number(process.env.PORT) || 8080;
-const PROTOCOL = 1;
-const MAX_PEERS = 6;
 const MAX_MESSAGE = 1 << 20; // 1 MB
-const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I or O, so codes are easy to read out loud
 const FILES = { '/': 'index.html', '/index.html': 'index.html', '/game.js': 'game.js' };
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
 
-// ---------------------------------------------------------------- rooms (same rules as relay-core.mjs)
+// The relay rules live in server/relay/relay-core.mjs, shared with the Cloudflare version.
+let Room, newCode, PROTOCOL;
 const rooms = new Map(); // code -> Room
-function newCode() {
-  let c;
-  do { c = ''; for (let i = 0; i < 4; i++) c += LETTERS[Math.floor(Math.random() * LETTERS.length)]; } while (rooms.has(c));
-  return c;
-}
-class Room {
-  constructor(code) { this.code = code; this.peers = new Map(); this.nextId = 2; }
-  addHost(c) {
-    this.peers.set(1, c);
-    c.sendText(JSON.stringify({ t: 'welcome', id: 1, code: this.code, peers: [] }));
-    return 1;
-  }
-  addGuest(c) {
-    if (!this.peers.has(1)) { c.sendText(JSON.stringify({ t: 'error', msg: 'That game has ended.' })); c.close(4004, 'That game has ended.'); return 0; }
-    if (this.peers.size >= MAX_PEERS) { c.sendText(JSON.stringify({ t: 'error', msg: 'That game is full!' })); c.close(4003, 'That game is full!'); return 0; }
-    const id = this.nextId++, others = [...this.peers.keys()];
-    this.peers.set(id, c);
-    c.sendText(JSON.stringify({ t: 'welcome', id, code: this.code, peers: others }));
-    for (const [pid, pc] of this.peers) if (pid !== id) pc.sendText(JSON.stringify({ t: 'join', id }));
-    return id;
-  }
-  onMessage(from, data, binary) {
-    if (!binary) {
-      let msg; try { msg = JSON.parse(data.toString('utf8')); } catch (e) { return; }
-      if (msg.t === 'kick' && from === 1 && this.peers.has(msg.id)) this.peers.get(msg.id).close(4001, 'Removed by the host.');
-      return;
-    }
-    if (data.length < 5) return;
-    const target = data.readInt32LE(0);
-    const out = Buffer.from(data); out.writeInt32LE(from, 0); // stamped with who it's from
-    if (target > 0) { const c = this.peers.get(target); if (c) c.sendBinary(out); return; }
-    for (const [pid, c] of this.peers) if (pid !== from && pid !== -target) c.sendBinary(out);
-  }
-  onLeave(id) {
-    if (!this.peers.has(id)) return;
-    this.peers.delete(id);
-    if (id === 1) { for (const c of this.peers.values()) c.close(4002, 'The host left the game.'); this.peers.clear(); }
-    else for (const c of this.peers.values()) c.sendText(JSON.stringify({ t: 'leave', id }));
-  }
-}
+const sendTo = (c, data) => (typeof data === 'string' ? c.sendText(data) : c.sendBinary(Buffer.from(data)));
+const closeConn = (c, code, reason) => c.close(code, reason);
 
 // ---------------------------------------------------------------- web pages
 const server = http.createServer((req, res) => {
@@ -162,26 +118,32 @@ server.on('upgrade', (req, socket) => {
   const parts = url.pathname.split('/').filter(Boolean);
   let room, id;
   if (parts[0] === 'host') {
-    room = new Room(newCode()); rooms.set(room.code, room);
+    let code;
+    do { code = newCode(); } while (rooms.has(code));
+    room = new Room(code, sendTo, closeConn); rooms.set(code, room);
     id = room.addHost(c);
-    log('Game ' + room.code + ' is being hosted.');
+    log('Game ' + code + ' is being hosted.');
   } else if (parts[0] === 'join' && parts[1]) {
     room = rooms.get(parts[1].toUpperCase().replace(/[^A-Z]/g, ''));
-    if (!room) return refuse(4004, 'No game with that code. Check the letters!');
+    if (!room || room.empty) return refuse(4004, 'No game with that code. Check the letters!');
     id = room.addGuest(c);
     if (!id) return;
     log('Someone joined game ' + room.code + '.');
   } else return refuse(4000, 'Bad request');
-  c.onmessage = (data, binary) => room.onMessage(id, data, binary);
+  c.onmessage = (data, binary) => room.onMessage(id, binary ? data : data.toString('utf8'));
   c.onclose = () => {
     room.onLeave(id);
-    if (!room.peers.size) { rooms.delete(room.code); log('Game ' + room.code + ' ended.'); }
+    if (room.empty && rooms.get(room.code) === room) { rooms.delete(room.code); log('Game ' + room.code + ' ended.'); }
   };
 });
 
 function log(s) { console.log(new Date().toLocaleTimeString() + '  ' + s); }
 
-server.listen(PORT, () => {
+import(require('url').pathToFileURL(path.join(__dirname, 'server', 'relay', 'relay-core.mjs')).href).then(core => {
+  ({ Room, newCode, PROTOCOL } = core);
+  server.listen(PORT, ready);
+});
+function ready() {
   const addrs = [];
   for (const list of Object.values(os.networkInterfaces())) for (const a of list || []) if (a.family === 'IPv4' && !a.internal) addrs.push(a.address);
   console.log('\n  BOOM BROTHERS home server is running!\n');
@@ -190,4 +152,4 @@ server.listen(PORT, () => {
   console.log('\n  Pick PLAY ONLINE > HOST A GAME on one device, then JOIN A GAME on the others.');
   console.log('  Windows may ask to let Node.js use the network: choose Allow (Private networks).');
   console.log('  Press Ctrl+C to stop.\n');
-});
+}

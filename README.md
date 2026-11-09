@@ -44,10 +44,11 @@ Pick **PLAY ONLINE** on the title screen, then **HOST A GAME** or **JOIN A GAME*
   `http://192.168.1.23:8080`. Open that address on every computer or tablet in the house.
   Open games are listed on the join screen, so kids can just tap one.
   If Windows asks whether Node.js may use the network, choose **Allow** (Private networks).
-- **Internet** (different houses): no setup. This uses the same relay server on Cloudflare as Race Track Mayhem
-  (`wss://race-track-mayhem-relay.andrewsaulls.workers.dev`), which works from any copy of the game, even
-  `index.html` opened straight from a folder. To use a different relay, add `?relay=wss://your-relay` to the page
-  address, or change `INTERNET_RELAY` in `game.js`.
+- **Internet** (different houses): no setup for players. The game uses Boom Brothers' own relay server on
+  Cloudflare (`server/relay`, put online with the **Relay server** GitHub workflow; see
+  [its README](server/relay/README.md)). Until that's deployed, it automatically uses Race Track Mayhem's
+  relay instead (same rules). This works from any copy of the game, even `index.html` opened straight
+  from a folder. To use a different relay, add `?relay=wss://your-relay` to the page address.
 
 Press ESC to leave an online game. If the host leaves, everyone else returns to the online menu.
 
@@ -78,7 +79,9 @@ Press ESC to leave an online game. If the host leaves, everyone else returns to 
 |---|---|
 | `index.html` | The page. Open it to play. |
 | `game.js` | The whole game: levels, heroes, robots, drawing, sound, and online play. |
-| `server.js` | Optional home-network server: serves the game and passes messages between screens (same rules as Race Track Mayhem's `server/relay`). |
+| `server.js` | Optional home-network server: serves the game and passes messages between screens. |
+| `server/relay/` | The internet game server for Cloudflare. Its `relay-core.mjs` rules are shared with `server.js`. |
+| `.github/workflows/relay.yml` | One-click deploy of the internet game server (Actions > Relay server). |
 
 ## Customize
 
