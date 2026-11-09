@@ -1,0 +1,81 @@
+# Builds the Windows version and publishes a GitHub release. SauceStore picks
+# the release up automatically (it reads saucestore.json from the release's tag).
+#
+# Two ways to start it:
+#   - push a version tag:   git tag v1.0.0 && git push origin v1.0.0
+#   - or on GitHub: Actions > Release > Run workflow, and type the version (v1.0.0)
+#
+# Write what changed in release-notes/<version>.md first: SauceStore shows each
+# line as the game's Version history.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, like v1.0.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: launcher/go.mod
+
+      - name: Check the game's scripts load
+        run: |
+          node -e "new Function(require('fs').readFileSync('game.js', 'utf8'))"
+          node --check server.js
+          node --check server/relay/relay-core.mjs
+          python3 -c "import json; json.load(open('saucestore.json'))"
+
+      - name: Install the Windows resource compiler (puts the icon into the .exe)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-mingw-w64-x86-64
+
+      - name: Build BoomBrothers.exe
+        working-directory: launcher
+        env:
+          VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          set -e
+          V="${VERSION#v}"
+          case "$V" in [0-9]*.[0-9]*.[0-9]*) ;; *) echo "Version must look like v1.2.3, got $VERSION"; exit 1;; esac
+          sed -i "s/1\.0\.0/$V/g; s/1,0,0,0/${V//./,},0/g" app.rc
+          x86_64-w64-mingw32-windres --preprocessor=cpp -O coff -o rsrc_windows_amd64.syso app.rc
+          GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-H windowsgui -s -w" -o ../build/BoomBrothers.exe .
+          test -s ../build/BoomBrothers.exe
+
+      - name: Zip it up
+        run: |
+          set -e
+          mkdir -p dist/zip/server/relay dist/zip/licenses
+          cp build/BoomBrothers.exe index.html game.js server.js README.md dist/zip/
+          cp server/relay/relay-core.mjs dist/zip/server/relay/
+          cp licenses/* dist/zip/licenses/
+          (cd dist/zip && zip -r -9 ../BoomBrothers-windows.zip .)
+          unzip -l dist/BoomBrothers-windows.zip
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          # SauceStore turns each line of the notes into its Version history.
+          NOTES="release-notes/$VERSION.md"
+          if [ -f "$NOTES" ]; then NOTE_ARGS=(--notes-file "$NOTES"); else NOTE_ARGS=(--generate-notes); fi
+          gh release create "$VERSION" dist/BoomBrothers-windows.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Boom Brothers $VERSION" \
+            "${NOTE_ARGS[@]}"

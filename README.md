@@ -82,6 +82,26 @@ Press ESC to leave an online game. If the host leaves, everyone else returns to 
 | `server.js` | Optional home-network server: serves the game and passes messages between screens. |
 | `server/relay/` | The internet game server for Cloudflare. Its `relay-core.mjs` rules are shared with `server.js`. |
 | `.github/workflows/relay.yml` | One-click deploy of the internet game server (Actions > Relay server). |
+| `launcher/` | `BoomBrothers.exe`, a tiny Windows program that opens the game in its own window (for SauceStore). |
+| `saucestore.json`, `store/`, `release-notes/` | The SauceStore listing, its icon, and each version's notes. |
+| `.github/workflows/release.yml` | Builds `BoomBrothers-windows.zip` and publishes a release when you push a version tag. |
+
+## Publishing to SauceStore
+
+`saucestore.json` is the store listing, and `.github/workflows/release.yml` builds
+`BoomBrothers-windows.zip` and publishes a GitHub release when you push a version tag
+(`git tag v1.0.0 && git push origin v1.0.0`, or Actions > Release > Run workflow).
+SauceStore finds the release on its own within about 10 minutes.
+
+- The zip holds `BoomBrothers.exe` (from `launcher/`), the game and the home-network server. SauceStore starts
+  apps by running their `.exe`, and this one opens `index.html` in a Microsoft Edge app window (no tabs or address
+  bar), or the default browser if Edge is missing.
+- Before tagging, write what changed in `release-notes/<version>.md`, one change per line. SauceStore shows these
+  lines as the game's Version history (a line starting with "Added" is tagged New, "Fixed" is tagged Fixed).
+- The store reads `saucestore.json` from the release's tag, so listing edits go live with the next release.
+- `rightsConfirmed` must be `true` for the store to show the game. It's your statement that you checked the
+  content against SauceStore's content policy.
+- `store/icon.png` is drawn from the game's own sprites: `node tools/make-icon.js` redraws it (needs Playwright).
 
 ## Customize
 

@@ -1,0 +1,25 @@
+// Windows resources for BoomBrothers.exe: the icon and the version info shown in
+// file properties. The release workflow compiles this with windres into a .syso
+// file, which "go build" picks up automatically.
+1 ICON "icon.ico"
+
+1 VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "FileDescription", "Boom Brothers: Atomic Liberty"
+      VALUE "ProductName", "Boom Brothers"
+      VALUE "FileVersion", "1.0.0"
+      VALUE "ProductVersion", "1.0.0"
+      VALUE "OriginalFilename", "BoomBrothers.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0409, 0x04B0
+  END
+END
