@@ -13,7 +13,7 @@
     "Keyboard; Xbox-style game controllers for players 3 and 4",
     "Internet for online games (home-network games need Node.js on one PC)"
   ],
-  "rightsConfirmed": false,
+  "rightsConfirmed": true,
   "credits": [
     {
       "asset": "Press Start 2P font (loaded from Google Fonts when online)",
