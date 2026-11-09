@@ -1463,9 +1463,10 @@ function updateLobby(dt, m) {
 // =====================================================================
 // RENDERING
 // =====================================================================
-function R(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); }
-function px(ox, oy, W, f) { return (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(f > 0 ? ox + x : ox + W - x - w, oy + y, w, h); }; }
-function circle(x, y, r, c) { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, Math.max(0, r), 0, Math.PI * 2); ctx.fill(); }
+let SIL = null; // while set, R/px/circle paint in this one colour (used for character outlines)
+function R(x, y, w, h, c) { ctx.fillStyle = SIL || c; ctx.fillRect(x, y, w, h); }
+function px(ox, oy, W, f) { return (x, y, w, h, c) => { ctx.fillStyle = SIL || c; ctx.fillRect(f > 0 ? ox + x : ox + W - x - w, oy + y, w, h); }; }
+function circle(x, y, r, c) { ctx.fillStyle = SIL || c; ctx.beginPath(); ctx.arc(x, y, Math.max(0, r), 0, Math.PI * 2); ctx.fill(); }
 function text(str, x, y, o = {}) {
   const size = o.size || 8;
   ctx.font = `${size}px ${FONT}`; ctx.textAlign = o.align || 'left'; ctx.textBaseline = 'top';
@@ -1480,10 +1481,49 @@ function heart(x, y, c, s = 1) {
 }
 
 // ---- characters
+// Every character is drawn twice: first as a dark silhouette nudged 1 pixel each way (the outline),
+// then in colour on top. While SIL is set, R/px/circle paint everything in that one colour.
+const OUTLINE = '#1a1424';
+function outlined(fn) {
+  const prev = SIL;
+  SIL = OUTLINE;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.save(); ctx.translate(dx, dy); fn(); ctx.restore(); }
+  SIL = prev;
+  fn();
+}
+const shadeCache = new Map();
+function shade(hex, amt) { // amt < 0 darkens, > 0 lightens (towards white)
+  const key = hex + amt;
+  let out = shadeCache.get(key);
+  if (out) return out;
+  let h = hex.slice(1);
+  if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  const n = parseInt(h, 16), ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  out = '#' + ch.map(c => Math.round(amt < 0 ? c * (1 + amt) : c + (255 - c) * amt).toString(16).padStart(2, '0')).join('');
+  shadeCache.set(key, out);
+  return out;
+}
+function glow(x, y, r, color, alpha = 0.35) { // soft light that fades out to nothing; skipped while drawing outlines
+  if (SIL || r <= 0) return;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, color); g.addColorStop(0.35, color); g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha *= alpha;
+  ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  ctx.restore();
+}
+function groundShadow(cx, bottom, w) {
+  ctx.save(); ctx.globalAlpha *= 0.28; ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.ellipse(cx, bottom, w / 2 + 2, 2, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+}
+// Legs: the far leg is darker, feet lift as they step, the near shoe has a shine.
 function legs(p, fr, air, pants, shoes, x1 = 3, x2 = 8) {
-  if (air) { p(x1, 15, 3, 3, pants); p(x2, 14, 3, 3, pants); p(x1, 18, 3, 2, shoes); p(x2, 17, 3, 2, shoes); return; }
-  const o = [0, 1, 0, -1][fr];
-  p(x1 + o, 15, 3, 3, pants); p(x2 - o, 15, 3, 3, pants); p(x1 + o, 18, 3, 2, shoes); p(x2 - o, 18, 3, 2, shoes);
+  const pantsD = shade(pants, -0.35);
+  let a = 0, b1 = 0, b2 = 0;
+  if (air) b2 = -1;
+  else { a = [0, 1, 0, -1][fr]; b1 = fr === 1 ? -1 : 0; b2 = fr === 3 ? -1 : 0; }
+  p(x1 + a, 15 + b1, 3, 3, pantsD); p(x1 + a, 18 + b1, 3, 2, shoes);
+  p(x2 - a, 15 + b2, 3, 3, pants); p(x2 - a, 15 + b2, 1, 3, pantsD);
+  p(x2 - a, 18 + b2, 4, 2, shoes); p(x2 - a + 1, 18 + b2, 2, 1, '#5a5a66');
 }
 const NOAH_PAL = [
   { band: '#d62828', shirt: '#2a6fdb', hair: '#6b3e1f', pants: '#1d3557' },
@@ -1497,68 +1537,129 @@ const ELIJAH_PAL = [
   { suit: '#e8eef2', suit2: '#aab4bc', hand: '#9aa4ac' },
   { suit: '#b388ff', suit2: '#7e57c2', hand: '#6a48a8' },
 ];
+const SKIN = '#f1c27d', SKIN_D = '#d9a066';
 function drawNoah(x, y, f, anim, moving, air, muzzle, v = 0) {
   const p = px(x, y, 14, f), fr = moving ? Math.floor(anim * 12) % 4 : 0, C = NOAH_PAL[v % 4];
-  p(0, 7, 4, 6, '#a0662f'); p(0, 6, 1, 1, '#a0662f'); p(3, 6, 1, 1, '#a0662f'); p(1, 9, 2, 2, '#e8c39e'); p(1, 8, 1, 1, '#222'); // plushie backpack
-  legs(p, fr, air, C.pants, '#222');
-  p(3, 8, 8, 7, C.shirt); p(6, 10, 2, 2, v === 2 ? '#d62828' : '#fff');
-  p(4, 1, 7, 7, '#f1c27d'); p(4, 0, 7, 2, C.hair); p(3, 1, 1, 3, C.hair);
-  p(3, 2, 9, 2, C.band); p(1, 3, 2, 1, C.band); p(0, 4, 2, 1, C.band);
-  p(9, 4, 1, 2, '#222'); p(8, 6, 2, 1, '#b5651d');
-  p(6, 9, 8, 3, '#556b2f'); p(13, 8, 1, 5, '#2b2b2b'); p(5, 11, 2, 2, '#f1c27d'); p(8, 8, 2, 1, '#ff4d4d');
-  if (muzzle) { p(14, 8, 3, 5, '#ffd34d'); p(17, 9, 2, 3, '#fff3b0'); }
+  const shirtD = shade(C.shirt, -0.3), shirtL = shade(C.shirt, 0.25), bandD = shade(C.band, -0.35), hairL = shade(C.hair, 0.3);
+  const flap = Math.floor(anim * 8) % 2;
+  // plushie bear backpack
+  p(0, 7, 4, 7, '#a0662f'); p(0, 7, 1, 7, '#7a4a1f'); p(0, 6, 1, 1, '#7a4a1f'); p(3, 6, 1, 1, '#7a4a1f');
+  p(1, 9, 2, 2, '#e8c39e'); p(1, 8, 1, 1, '#2a1a0a'); p(2, 10, 1, 1, '#2a1a0a'); p(3, 12, 1, 1, '#ff8fb0');
+  legs(p, fr, air, C.pants, '#1a1a1a');
+  // shirt with a star, belt and buckle
+  p(3, 8, 8, 6, C.shirt); p(3, 8, 1, 6, shirtD); p(4, 8, 6, 1, shirtL);
+  const star = v === 2 ? '#d62828' : '#fff';
+  p(7, 10, 1, 1, star); p(6, 11, 3, 1, star); p(7, 12, 1, 1, star);
+  p(3, 14, 8, 1, '#5a3a1a'); p(7, 14, 2, 1, '#ffd34d');
+  // head: hair, ear, face
+  p(4, 1, 7, 7, SKIN); p(5, 7, 5, 1, SKIN_D); p(4, 4, 1, 3, SKIN_D);
+  p(4, 0, 7, 2, C.hair); p(6, 0, 3, 1, hairL); p(3, 1, 1, 4, C.hair); p(4, 4, 1, 2, C.hair);
+  p(8, 4, 2, 2, '#fff'); p(9, 4, 1, 2, '#1a1a1a'); p(10, 5, 1, 1, SKIN_D);
+  p(7, 6, 1, 1, '#f3a58e'); p(8, 6, 2, 1, '#7a3a1a');
+  // bandana with flapping tails
+  p(3, 2, 9, 2, C.band); p(3, 3, 9, 1, bandD); p(2, 2, 1, 2, bandD);
+  p(0, 3 + flap, 2, 1, C.band); p(0, 4 + flap, 1, 1, bandD);
+  // pop-rocket launcher
+  p(5, 9, 2, 3, shirtD);
+  p(6, 9, 8, 3, '#5d7a2f'); p(6, 9, 8, 1, '#7d9a45'); p(6, 11, 8, 1, '#3d5220');
+  p(5, 9, 1, 3, '#2b2b2b'); p(13, 8, 1, 5, '#2b2b2b'); p(9, 8, 2, 1, '#2b2b2b'); p(11, 9, 1, 2, '#d62828');
+  p(6, 11, 2, 2, SKIN);
+  if (muzzle) { glow(f > 0 ? x + 16 : x - 2, y + 10, 6, '#ffb000'); p(14, 8, 3, 5, '#ffd34d'); p(14, 9, 4, 3, '#fff3b0'); p(18, 10, 1, 1, '#fff'); }
 }
 function drawElijah(x, y, f, anim, moving, air, muzzle, v = 0) {
   const p = px(x, y, 14, f), fr = moving ? Math.floor(anim * 12) % 4 : 0, C = ELIJAH_PAL[v % 4];
-  const glow = (Math.sin(gtime * 8) + 1) / 2 > 0.5 ? '#39ff14' : '#7dff5a';
-  p(0, 7, 3, 7, '#1b5e20'); p(1, 8, 1, 5, glow);
-  legs(p, fr, air, C.suit2, '#333');
-  p(3, 7, 9, 8, C.suit); p(5, 9, 3, 3, '#222'); p(6, 10, 1, 1, C.suit);
-  p(3, 0, 9, 7, C.suit); p(5, 2, 7, 4, '#9fffbf'); p(9, 3, 1, 2, '#0a3d1a'); p(7, 3, 1, 2, '#0a3d1a'); p(8, 5, 2, 1, '#0a3d1a');
-  p(6, -2, 1, 2, '#888'); p(5, -3, 3, 1, glow);
-  p(6, 10, 7, 2, '#c0c0c0'); p(12, 9, 2, 4, glow); p(5, 11, 2, 2, C.hand);
-  if (muzzle) { p(14, 8, 3, 5, '#b6ff6e'); p(17, 9, 2, 3, '#fff'); }
+  const g = (Math.sin(gtime * 8) + 1) / 2 > 0.5 ? '#39ff14' : '#7dff5a';
+  const suitD = shade(C.suit, -0.25), suitL = shade(C.suit, 0.35);
+  // uranium tank backpack
+  p(0, 6, 3, 9, '#1b5e20'); p(0, 6, 3, 1, '#9aa'); p(0, 14, 3, 1, '#9aa'); p(1, 7, 1, 7, g); p(0, 7, 1, 7, '#0e3a12');
+  glow(f > 0 ? x + 1.5 : x + 12.5, y + 10, 5, '#39ff14', 0.25);
+  legs(p, fr, air, C.suit2, '#262630');
+  // suit, radiation badge, belt with pouch
+  p(3, 7, 9, 8, C.suit); p(3, 7, 1, 8, suitD); p(4, 7, 7, 1, suitL);
+  p(5, 9, 3, 3, '#1a1a1a'); p(6, 10, 1, 1, C.suit); p(5, 9, 1, 1, C.suit); p(7, 9, 1, 1, C.suit); p(6, 11, 1, 1, '#1a1a1a');
+  p(3, 13, 9, 1, '#4a4a55'); p(9, 13, 2, 2, '#4a4a55');
+  // hazmat hood with a glass visor
+  p(4, 0, 7, 1, C.suit); p(3, 1, 9, 6, C.suit); p(3, 1, 1, 6, suitD); p(5, 0, 4, 1, suitL);
+  p(5, 2, 6, 4, '#9fffbf'); p(5, 5, 6, 1, '#7ed9a0'); p(6, 2, 2, 1, '#fff');
+  p(8, 3, 1, 2, '#0a3d1a'); p(10, 3, 1, 2, '#0a3d1a'); p(8, 5, 2, 1, '#0a3d1a');
+  p(6, -2, 1, 2, '#888'); p(5, -3, 3, 1, g);
+  // uranium ray gun with glowing coils
+  p(5, 11, 2, 2, '#333');
+  p(6, 10, 6, 2, '#c0c0c0'); p(6, 10, 6, 1, '#e8e8e8'); p(6, 11, 6, 1, '#888');
+  p(8, 9, 1, 1, g); p(10, 9, 1, 1, g); p(12, 9, 2, 4, g); p(13, 10, 1, 2, '#fff');
+  if (muzzle) { glow(f > 0 ? x + 16 : x - 2, y + 10, 7, '#39ff14'); p(14, 8, 3, 5, '#b6ff6e'); p(14, 9, 4, 3, '#fff'); }
 }
 function drawHero(hero, x, y, f, anim, moving, air, muzzle, v = 0) {
-  (hero === 'noah' ? drawNoah : drawElijah)(x, y, f, anim, moving, air, muzzle, v);
+  outlined(() => (hero === 'noah' ? drawNoah : drawElijah)(x, y, f, anim, moving, air, muzzle, v));
 }
 function drawPerson(x, y, f, look, anim, moving, air) {
-  const L = FAMILY_LOOKS[look % FAMILY_LOOKS.length];
-  const p = px(x, y, 12, f), fr = moving ? Math.floor(anim * 12) % 4 : 0;
-  if (L.long) p(2, 1, 8, 9, L.hair);
-  legs(p, fr, air, L.pants, '#222', 2, 7);
-  p(2, 8, 8, 7, L.shirt);
-  p(3, 1, 7, 7, L.skin); p(3, 0, 7, 2, L.hair); p(2, 1, 1, 3, L.hair);
-  p(8, 3, 1, 2, '#222'); p(6, 6, 3, 1, '#c0392b');
-  p(10, 9, 2, 2, L.skin);
+  outlined(() => {
+    const L = FAMILY_LOOKS[look % FAMILY_LOOKS.length];
+    const p = px(x, y, 12, f), fr = moving ? Math.floor(anim * 12) % 4 : 0;
+    if (L.long) { p(2, 1, 8, 9, L.hair); p(2, 1, 1, 9, shade(L.hair, -0.3)); }
+    legs(p, fr, air, L.pants, '#222', 2, 7);
+    p(2, 8, 8, 7, L.shirt); p(2, 8, 1, 7, shade(L.shirt, -0.3)); p(3, 8, 6, 1, shade(L.shirt, 0.3));
+    p(3, 1, 7, 7, L.skin); p(4, 7, 5, 1, shade(L.skin, -0.15));
+    p(3, 0, 7, 2, L.hair); p(5, 0, 3, 1, shade(L.hair, 0.3)); p(2, 1, 1, 3, L.hair);
+    p(7, 3, 2, 2, '#fff'); p(8, 3, 1, 2, '#222'); p(6, 5, 1, 1, '#f3a58e'); p(6, 6, 3, 1, '#c0392b');
+    p(9, 9, 2, 3, shade(L.shirt, -0.15)); p(10, 11, 2, 2, L.skin); // waving arm
+  });
 }
 const BOT_COLORS = {
   grunt: { body: '#8d99ae', dark: '#5c677d', eye: '#ff3b3b' }, shield: { body: '#7f9cc0', dark: '#4f6584', eye: '#ff3b3b' },
   jet: { body: '#a493c0', dark: '#6c5c8a', eye: '#ffcc00' }, heavy: { body: '#c0504d', dark: '#7d2b2b', eye: '#ffeb3b' },
 };
 function drawBot(type, x, y, f, anim, flashing, moving, state) {
+  outlined(() => drawBotParts(type, x, y, f, anim, flashing, moving, state));
+}
+function drawBotParts(type, x, y, f, anim, flashing, moving, state) {
   const C = flashing ? { body: '#fff', dark: '#ddd', eye: '#fff' } : BOT_COLORS[type];
+  const hi = flashing ? '#fff' : shade(C.body, 0.35), lo = flashing ? '#ddd' : shade(C.dark, -0.35);
   const W = type === 'heavy' ? 18 : 16, p = px(x - 2, y, W, f);
-  const fr = moving ? Math.floor(anim * 10) % 4 : 0;
+  const fr = moving ? Math.floor(anim * 10) % 4 : 0, o = [0, 1, 0, -1][fr];
+  const blink = Math.floor(anim * 3 + x) % 4 === 0, led = flashing ? '#fff' : blink ? '#39ff14' : '#1d6b33';
+  const eyeX = f > 0 ? x - 2 + 10 : x - 2 + W - 10;
   if (type === 'jet') {
-    p(0, 4, 4, 8, '#555'); if (Math.floor(anim * 20) % 2) p(1, 12, 2, 4, '#ff8c1a');
-    p(3, 0, 10, 6, C.body); p(8, 2, 5, 2, C.eye); p(2, 6, 11, 7, C.dark); p(10, 8, 6, 2, '#222');
+    p(0, 3, 4, 9, '#4a4a55'); p(0, 3, 1, 9, '#2e2e36'); p(1, 4, 2, 1, '#8a8a99');
+    const fl = Math.floor(anim * 20) % 3;
+    p(1, 12, 2, 3 + fl, '#ff8c1a'); p(1, 12, 2, 1 + fl, '#ffd34d');
+    glow(f > 0 ? x - 1 : x + 13, y + 14, 5, '#ff8c1a', 0.4);
+    p(3, 0, 10, 6, C.body); p(3, 0, 10, 1, hi); p(3, 5, 10, 1, C.dark);
+    p(7, 1, 6, 4, '#1a1a1a'); p(8, 2, 5, 2, C.eye); p(11, 2, 1, 1, '#fff');
+    p(2, 6, 11, 7, C.dark); p(2, 6, 11, 1, C.body); p(4, 8, 3, 2, '#2b2d42'); p(5, 8, 1, 1, led);
+    p(9, 8, 7, 2, '#222'); p(9, 8, 7, 1, '#444');
+    glow(eyeX, y + 3, 4, C.eye, 0.3);
     return;
   }
   if (type === 'heavy') {
-    p(3, 0, 11, 7, C.body); p(9, 2, 5, 2, C.eye); p(2, 7, 13, 8, C.dark); p(5, 9, 5, 3, '#2b2d42');
-    p(1, 3, 16, 4, '#4b5320'); p(16, 2, 2, 6, '#2b2b2b'); p(0, 4, 2, 2, '#ff8c1a');
-    const o = [0, 1, 0, -1][fr]; p(3 + o, 15, 4, 5, '#2b2d42'); p(10 - o, 15, 4, 5, '#2b2d42');
+    p(3, 0, 11, 7, C.body); p(3, 0, 11, 1, hi); p(3, 6, 11, 1, lo);
+    p(8, 1, 6, 4, '#1a1a1a'); p(9, 2, 5, 2, C.eye); p(12, 2, 1, 1, '#fff');
+    p(2, 7, 13, 8, C.dark); p(2, 7, 13, 1, C.body); p(4, 9, 6, 4, '#2b2d42'); p(5, 10, 1, 1, led); p(7, 10, 1, 1, '#ff3b3b');
+    p(3, 8, 1, 1, hi); p(13, 8, 1, 1, hi); p(3, 13, 1, 1, hi); p(13, 13, 1, 1, hi);
+    p(0, 3, 17, 4, '#4b5320'); p(0, 3, 17, 1, '#6b7340'); p(0, 6, 17, 1, '#2b3310');
+    p(5, 3, 1, 4, '#ffd34d'); p(7, 3, 1, 4, '#ffd34d'); p(16, 2, 2, 6, '#2b2b2b'); p(0, 4, 2, 2, '#ff8c1a');
+    p(3 + o, 15, 4, 5, '#2b2d42'); p(3 + o, 15, 4, 1, lo); p(2 + o, 19, 6, 1, '#111');
+    p(10 - o, 15, 4, 5, '#3b3d52'); p(10 - o, 19, 5, 1, '#111');
+    glow(eyeX + (f > 0 ? 1 : -1), y + 3, 4, C.eye, 0.3);
     return;
   }
-  p(5, -3, 1, 3, C.dark); p(4, -4, 3, 1, C.eye);
-  p(3, 0, 10, 6, C.body); p(8, 2, 5, 2, C.eye);
-  if (state === 'alert' && !flashing) p(9, 2, 2, 2, '#fff');
-  p(2, 6, 11, 7, C.dark); p(4, 8, 4, 3, '#2b2d42');
-  p(9, 9, 7, 2, '#222');
-  const o = [0, 1, 0, -1][fr]; p(3 + o, 13, 3, 5, '#2b2d42'); p(9 - o, 13, 3, 5, '#2b2d42');
-  if (type === 'shield') { p(14, 1, 3, 16, '#4a90e2'); p(15, 3, 1, 12, '#a8d0ff'); }
+  // grunt & shield bot
+  p(5, -3, 1, 3, C.dark); p(4, -4, 3, 1, blink ? '#fff' : C.eye);
+  p(3, 0, 10, 6, C.body); p(3, 0, 10, 1, hi); p(3, 0, 1, 6, C.dark); p(3, 5, 10, 1, C.dark);
+  p(7, 1, 6, 4, '#1a1a1a'); p(8, 2, 4, 2, C.eye); p(10, 2, 1, 1, '#fff');
+  if (state === 'alert' && !flashing) p(8, 2, 4, 2, '#fff');
+  p(2, 6, 11, 7, C.dark); p(2, 6, 11, 1, C.body); p(2, 6, 2, 3, C.body);
+  p(4, 8, 4, 3, '#2b2d42'); p(5, 9, 1, 1, led); p(6, 9, 1, 1, '#ff3b3b');
+  p(8, 9, 8, 2, '#222'); p(8, 9, 8, 1, '#444'); p(15, 8, 1, 4, '#111'); p(8, 9, 2, 2, C.body);
+  p(3 + o, 13, 3, 4, lo); p(2 + o, 17, 5, 1, '#111');
+  p(9 - o, 13, 3, 4, '#2b2d42'); p(9 - o, 15, 3, 1, C.dark); p(8 - o, 17, 5, 1, '#111');
+  if (type === 'shield') {
+    p(14, 1, 3, 16, '#4a90e2'); p(14, 1, 1, 16, '#2a60a8'); p(15, 3, 1, 12, '#a8d0ff');
+    p(14, 8, 3, 1, '#ffd34d'); p(15, 2, 1, 1, '#fff'); p(15, 15, 1, 1, '#fff');
+  }
+  glow(eyeX, y + 3, 4, C.eye, state === 'alert' ? 0.5 : 0.28);
 }
+
 function drawEagle(x, y, flap) {
   const up = Math.floor(flap * 8) % 2 === 0;
   R(x - 10, y + 4, 22, 8, '#5b3a1a');
@@ -1575,7 +1676,7 @@ function drawTeddy(x, y, s = 1) { // a little plushie bear head
 }
 function drawCrystal(x, y, s = 1) {
   const g = (Math.sin(gtime * 6) + 1) / 2;
-  ctx.globalAlpha = 0.3 + g * 0.3; circle(x + 5 * s, y + 5 * s, 7 * s, '#39ff14'); ctx.globalAlpha = 1;
+  if (!SIL) { ctx.globalAlpha = 0.3 + g * 0.3; circle(x + 5 * s, y + 5 * s, 7 * s, '#39ff14'); ctx.globalAlpha = 1; }
   R(x + 3 * s, y, 4 * s, 10 * s, '#39ff14'); R(x + 1 * s, y + 2 * s, 8 * s, 6 * s, '#39ff14'); R(x + 4 * s, y + 1 * s, 2 * s, 7 * s, '#d8ffc8');
 }
 function drawDove(x, y, flap) {
@@ -1597,101 +1698,202 @@ function drawFlagCloth(x, y, w, h, wave) {
 }
 
 // ---- background
+const wrap = (v, span) => ((v % span) + span) % span;
+function ridgeY(x, off, base, amp, fq) { const w = x + off; return base - Math.sin(w * fq) * amp - Math.sin(w * fq * 2.7 + 1) * amp * 0.4; }
+function ridge(off, base, amp, color, fq) {
+  ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(0, VH);
+  for (let x = 0; x <= VW; x += 4) ctx.lineTo(x, ridgeY(x, off, base, amp, fq));
+  ctx.lineTo(VW, VH); ctx.fill();
+}
+function skyGradient(stops) {
+  const g = ctx.createLinearGradient(0, 0, 0, VH);
+  stops.forEach(([at, c]) => g.addColorStop(at, c));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
+}
+function cloud(x, y, s) {
+  circle(x + 2, y + 4, 10 * s, '#c9dff0'); circle(x + 14 * s, y + 1, 12 * s, '#c9dff0'); circle(x + 28 * s, y + 4, 9 * s, '#c9dff0');
+  circle(x, y, 10 * s, '#fff'); circle(x + 12 * s, y - 4, 12 * s, '#fff'); circle(x + 26 * s, y, 9 * s, '#fff');
+  R(x - 8 * s, y + 2, 42 * s, 6 * s, '#fff');
+}
+function tree(x, y, s, c, c2) {
+  R(x - 1, y - 6 * s, 2, 6 * s + 2, '#4a3220');
+  circle(x, y - 9 * s, 6 * s, c); circle(x - 3 * s, y - 6 * s, 4 * s, c); circle(x + 3 * s, y - 6 * s, 4 * s, c);
+  circle(x - 2 * s, y - 11 * s, 2.5 * s, c2);
+}
 function drawBackground() {
   const th = LEVELS[level ? level.index : 0].theme;
   const ox = camX;
-  if (th === 'valley' || state === 'title' || state === 'story') {
-    const g = ctx.createLinearGradient(0, 0, 0, VH); g.addColorStop(0, '#4fb3f6'); g.addColorStop(1, '#c9f0ff');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
-    circle(400, 46, 20, '#fff6b0'); circle(400, 46, 16, '#ffe066');
-    for (let i = 0; i < 6; i++) { const cx = ((i * 137 - ox * 0.08 + gtime * 4) % (VW + 120) + VW + 120) % (VW + 120) - 60; const cy = 26 + (i * 37) % 60; circle(cx, cy, 10, '#fff'); circle(cx + 12, cy - 4, 12, '#fff'); circle(cx + 26, cy, 9, '#fff'); }
-    ridge(ox * 0.15, 150, 30, '#8bb6d6', 0.008); ridge(ox * 0.35, 190, 22, '#5aa05a', 0.017); return;
+  if (th === 'valley' || state === 'title' || state === 'story' || state === 'lobby' || state === 'online' || state === 'code' || state === 'netwait') {
+    skyGradient([[0, '#3f9fe8'], [0.6, '#9fdcff'], [1, '#d8f4ff']]);
+    glow(400, 46, 40, '#fff2a0', 0.5);
+    ctx.save(); ctx.globalAlpha = 0.18; ctx.fillStyle = '#fff6c0';
+    for (let i = 0; i < 10; i++) { const a = gtime * 0.1 + i * Math.PI / 5; ctx.beginPath(); ctx.moveTo(400, 46); ctx.lineTo(400 + Math.cos(a) * 90, 46 + Math.sin(a) * 90); ctx.lineTo(400 + Math.cos(a + 0.12) * 90, 46 + Math.sin(a + 0.12) * 90); ctx.fill(); }
+    ctx.restore();
+    circle(400, 46, 19, '#fff6b0'); circle(400, 46, 15, '#ffe066'); circle(396, 42, 5, '#fff8d0');
+    // far mountains with snow caps
+    ridge(ox * 0.06, 158, 44, '#93b8d8', 0.006);
+    for (let x = 0; x <= VW; x += 2) { // snow on the peaks, following their shape
+      const top = ridgeY(x, ox * 0.06, 158, 44, 0.006);
+      if (top < 124) { const d = (124 - top) * 0.8; R(x, top, 2, d, '#eef6ff'); R(x, top + d, 2, 1, '#cfe0f0'); }
+    }
+    ridge(ox * 0.06 + 140, 170, 30, '#7fa6c8', 0.009);
+    for (let i = 0; i < 6; i++) { const span = VW + 140; cloud(wrap(i * 137 - ox * 0.1 + gtime * 4, span) - 60, 24 + (i * 37) % 60, 0.8 + (i % 3) * 0.15); }
+    // birds
+    for (let i = 0; i < 3; i++) {
+      const bx = wrap(i * 170 + gtime * 18 - ox * 0.15, VW + 40) - 20, by = 60 + i * 14 + Math.sin(gtime * 2 + i) * 4, up = Math.floor(gtime * 6 + i) % 2;
+      R(bx - 3, by - up, 3, 1, '#2a3a4a'); R(bx + 1, by - up, 3, 1, '#2a3a4a'); R(bx, by, 1, 1, '#2a3a4a');
+    }
+    // hills with trees, then near bushes
+    const off1 = ox * 0.3;
+    ridge(off1, 192, 22, '#6aa85a', 0.013);
+    for (let i = 0; i < 16; i++) { const tx = wrap(i * 41 - off1, VW + 60) - 30; tree(tx, ridgeY(tx, off1, 192, 22, 0.013) + 2, 1 + (i % 3) * 0.2, '#3f7d3a', '#5aa04f'); }
+    const off2 = ox * 0.5;
+    ridge(off2, 214, 12, '#4b944a', 0.021);
+    for (let i = 0; i < 14; i++) { const bx = wrap(i * 53 - off2, VW + 40) - 20, by = ridgeY(bx, off2, 214, 12, 0.021); circle(bx, by + 2, 7, '#3c7f3c'); circle(bx + 6, by + 3, 5, '#3c7f3c'); circle(bx - 2, by, 3, '#5aa04f'); }
+    return;
   }
   if (th === 'mine') {
-    const g = ctx.createLinearGradient(0, 0, 0, VH); g.addColorStop(0, '#120a1c'); g.addColorStop(1, '#2d1b3d');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
-    ridge(ox * 0.2, 170, 40, '#24182f', 0.012);
-    for (let i = 0; i < 18; i++) {
-      const cx = ((i * 97 - ox * 0.3) % (VW + 40) + VW + 40) % (VW + 40) - 20, cy = 60 + (i * 53) % 140;
-      ctx.globalAlpha = 0.12 + 0.1 * Math.sin(gtime * 2 + i); circle(cx, cy, 6, '#39ff14'); ctx.globalAlpha = 0.8;
-      R(cx - 1, cy - 3, 2, 6, '#7dff5a'); R(cx + 2, cy, 2, 3, '#4fd13a'); ctx.globalAlpha = 1;
+    skyGradient([[0, '#0d0716'], [1, '#2d1b3d']]);
+    ridge(ox * 0.15, 150, 50, '#1d1328', 0.01);
+    ridge(ox * 0.25, 200, 30, '#251a33', 0.016);
+    for (let i = 0; i < 18; i++) { // glowing crystal clusters
+      const cx = wrap(i * 97 - ox * 0.3, VW + 40) - 20, cy = 70 + (i * 53) % 140, pulse = 0.5 + 0.5 * Math.sin(gtime * 2 + i);
+      glow(cx, cy, 12, '#39ff14', 0.3 + 0.2 * pulse);
+      R(cx - 1, cy - 4, 2, 7, '#7dff5a'); R(cx + 2, cy - 1, 2, 4, '#4fd13a'); R(cx - 3, cy, 2, 3, '#4fd13a'); R(cx - 1, cy - 4, 1, 2, '#e0ffd0');
+    }
+    for (let i = 0; i < 6; i++) { // timber supports with hanging lanterns
+      const bx = wrap(i * 150 - ox * 0.55, VW + 150) - 75;
+      R(bx, 34, 7, VH, '#4a3020'); R(bx, 34, 2, VH, '#5f4029'); R(bx + 6, 34, 1, VH, '#2e1d12');
+      R(bx + 70, 34, 7, VH, '#4a3020'); R(bx + 70, 34, 2, VH, '#5f4029');
+      R(bx - 4, 30, 85, 6, '#5f4029'); R(bx - 4, 35, 85, 1, '#2e1d12');
+      const lx = bx + 38, flick = 0.85 + 0.15 * Math.sin(gtime * 13 + i * 3);
+      R(lx, 36, 1, 8, '#222'); R(lx - 3, 44, 7, 8, '#333'); R(lx - 2, 45, 5, 6, '#ffcc55');
+      glow(lx, 48, 34 * flick, '#ffb040', 0.6);
     }
     return;
   }
   if (th === 'factory') {
-    const g = ctx.createLinearGradient(0, 0, 0, VH); g.addColorStop(0, '#ff9ad5'); g.addColorStop(1, '#ffd9a6');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
-    for (let i = 0; i < 8; i++) {
-      const cx = ((i * 90 - ox * 0.25) % (VW + 90) + VW + 90) % (VW + 90) - 45;
-      R(cx, 120, 50, 110, '#c77aa8'); R(cx + 30, 70, 10, 50, '#b56a96');
-      circle(cx + 35 + Math.sin(gtime + i) * 3, 60 - (gtime * 10 + i * 10) % 30, 7, 'rgba(255,255,255,0.6)');
-      if (i % 3 === 0) { ctx.globalAlpha = 0.35; drawTeddy(cx + 5, 85, 3); ctx.globalAlpha = 1; }
+    skyGradient([[0, '#ff8ccf'], [0.6, '#ffc0a8'], [1, '#ffe2b0']]);
+    glow(90, 70, 50, '#fff0c0', 0.4); circle(90, 70, 22, '#fff4d8');
+    for (let i = 0; i < 8; i++) { // far factories with lit windows and smoking chimneys
+      const cx = wrap(i * 90 - ox * 0.25, VW + 90) - 45, top = 110 + (i % 3) * 12;
+      R(cx, top, 56, VH, '#c77aa8'); R(cx, top, 56, 3, '#d993bb'); R(cx + 54, top, 2, VH, '#a5618a');
+      R(cx + 34, top - 46, 10, 46, '#b56a96'); R(cx + 33, top - 48, 12, 3, '#9e5683');
+      for (let r = 0; r < 5; r++) for (let c = 0; c < 4; c++) R(cx + 5 + c * 12, top + 10 + r * 16, 6, 8, hash(i * 7 + c, r) > 0.35 ? '#ffe8a0' : '#8e4f78');
+      for (let k = 0; k < 3; k++) { const t = (gtime * 0.6 + k / 3 + i * 0.2) % 1; ctx.save(); ctx.globalAlpha = 0.55 * (1 - t); circle(cx + 39 + Math.sin(t * 6 + i) * 4, top - 50 - t * 40, 5 + t * 8, '#fff'); ctx.restore(); }
+      if (i % 3 === 0) { ctx.save(); ctx.globalAlpha = 0.45; drawTeddy(cx + 8, top - 34, 2.4); ctx.restore(); }
     }
+    const off = ox * 0.5; // pipes in front
+    for (let i = 0; i < 6; i++) { const pxx = wrap(i * 110 - off, VW + 110) - 55; R(pxx, 200, 90, 8, '#9e6b8e'); R(pxx, 200, 90, 2, '#c08ab0'); R(pxx + 40, 196, 10, 16, '#7a4f6e'); circle(pxx + 45, 194, 4, '#d62828'); }
     return;
   }
-  // fortress at dusk with a giant flag
-  const g = ctx.createLinearGradient(0, 0, 0, VH); g.addColorStop(0, '#141a45'); g.addColorStop(0.6, '#7b2d5b'); g.addColorStop(1, '#ff7a3d');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
-  for (let i = 0; i < 40; i++) R((i * 71) % VW, (i * 37) % 110, 1, 1, i % 3 ? '#fff' : '#ffd34d');
-  ctx.globalAlpha = 0.35; drawFlagCloth(((60 - ox * 0.1) % 600 + 600) % 600 - 60, 30, 120, 66, true); ctx.globalAlpha = 1;
-  ridge(ox * 0.3, 200, 18, '#3b1f3f', 0.02);
-}
-function ridge(off, base, amp, color, fq) {
-  ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(0, VH);
-  for (let x = 0; x <= VW; x += 4) { const w = x + off; ctx.lineTo(x, base - Math.sin(w * fq) * amp - Math.sin(w * fq * 2.7 + 1) * amp * 0.4); }
-  ctx.lineTo(VW, VH); ctx.fill();
+  // fortress at dusk: stars, searchlights, a castle wall and a giant flag
+  skyGradient([[0, '#0f1438'], [0.55, '#6b2a58'], [1, '#ff7a3d']]);
+  for (let i = 0; i < 50; i++) { const tw = Math.sin(gtime * 3 + i * 1.7) > 0.6 ? 2 : 1; R((i * 71) % VW, (i * 37) % 120, tw, tw, i % 3 ? '#fff' : '#ffd34d'); }
+  circle(70, 50, 14, '#fff6d8'); circle(76, 46, 12, '#1b1f4a'); // crescent moon
+  ctx.save(); ctx.globalAlpha = 0.35; drawFlagCloth(wrap(60 - ox * 0.1, 600) - 60, 30, 120, 66, true); ctx.restore();
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.08; ctx.fillStyle = '#fff8d0';
+  for (let i = 0; i < 2; i++) {
+    const bx = wrap(160 + i * 240 - ox * 0.2, VW + 100) - 50, a = -Math.PI / 2 + Math.sin(gtime * 0.6 + i * 2) * 0.6;
+    ctx.beginPath(); ctx.moveTo(bx, 190); ctx.lineTo(bx + Math.cos(a - 0.1) * 300, 190 + Math.sin(a - 0.1) * 300); ctx.lineTo(bx + Math.cos(a + 0.1) * 300, 190 + Math.sin(a + 0.1) * 300); ctx.fill();
+  }
+  ctx.restore();
+  const off = ox * 0.25; // castle wall with towers and lit windows
+  R(0, 186, VW, VH, '#2a1630');
+  for (let x = -wrap(off, 16); x < VW; x += 16) R(x, 180, 9, 7, '#2a1630');
+  for (let i = 0; i < 5; i++) {
+    const tx = wrap(i * 130 - off, VW + 130) - 65;
+    R(tx, 150, 30, 40, '#2a1630'); for (let k = 0; k < 4; k++) R(tx + k * 8, 144, 6, 7, '#2a1630');
+    R(tx + 12, 160, 6, 9, Math.floor(gtime * 2 + i) % 7 ? '#ffcf6a' : '#5a3a4a');
+  }
+  ridge(ox * 0.4, 214, 10, '#3b1f3f', 0.02);
 }
 
 // ---- tiles
 function drawTiles() {
   const th = level.theme;
   const x0 = Math.max(0, Math.floor(camX / TILE)), x1 = Math.min(level.w - 1, Math.floor((camX + VW) / TILE));
+  const dirtL = shade(th.dirt, 0.12), dirtD = shade(th.dirt, -0.3), stone = shade(th.dirt, 0.28), stoneD = shade(th.dirt, -0.1);
+  const brickL = shade(th.brick, 0.25), brickD = shade(th.brick, -0.25);
   for (let ty = 0; ty < level.h; ty++) for (let tx = x0; tx <= x1; tx++) {
     const i = ty * level.w + tx, t = level.tiles[i];
     if (!t) continue;
     const x = tx * TILE, y = ty * TILE, hv = hash(tx, ty);
+    const openUp = !SOLID[tileAt(tx, ty - 1)], openDown = !SOLID[tileAt(tx, ty + 1)];
+    const openL = !SOLID[tileAt(tx - 1, ty)], openR = !SOLID[tileAt(tx + 1, ty)];
     switch (t) {
-      case T.DIRT:
+      case T.DIRT: {
         R(x, y, 16, 16, th.dirt);
-        R(x + Math.floor(hv * 12), y + Math.floor(hash(ty, tx) * 12) + 2, 3, 2, th.dirt2);
-        R(x + Math.floor(hash(tx + 7, ty) * 12), y + Math.floor(hash(tx, ty + 9) * 12), 2, 2, th.dirt2);
-        if (th.grass && !SOLID[tileAt(tx, ty - 1)]) { R(x, y, 16, 4, th.grass); R(x, y + 4, 16, 1, th.grass2); R(x + 3, y - 1, 1, 1, th.grass); R(x + 10, y - 2, 1, 2, th.grass); }
+        R(x, y + 10, 16, 6, shade(th.dirt, -0.06));
+        const sx = x + Math.floor(hv * 10) + 1, sy = y + Math.floor(hash(ty, tx) * 9) + 3; // a pebble
+        R(sx, sy, 4, 3, stoneD); R(sx, sy, 3, 2, stone); R(sx, sy, 1, 1, shade(th.dirt, 0.5));
+        R(x + Math.floor(hash(tx + 7, ty) * 13), y + Math.floor(hash(tx, ty + 9) * 13), 2, 1, dirtD);
+        R(x + Math.floor(hash(tx + 3, ty + 5) * 13), y + Math.floor(hash(tx + 11, ty) * 13), 1, 2, dirtL);
+        if (hash(tx + 21, ty + 4) < 0.25) { const rx = x + Math.floor(hash(tx, ty + 30) * 10) + 2; R(rx, y + 6, 1, 4, dirtD); R(rx + 1, y + 9, 2, 1, dirtD); } // a root
+        if (openL) R(x, y, 1, 16, dirtD);
+        if (openR) R(x + 15, y, 1, 16, dirtD);
+        if (openDown) R(x, y + 15, 16, 1, dirtD);
+        if (th.grass && openUp) {
+          R(x, y, 16, 4, th.grass); R(x, y + 4, 16, 1, th.grass2); R(x, y + 5, 16, 1, dirtD);
+          R(x, y, 16, 1, shade(th.grass, 0.3));
+          for (let k = 0; k < 4; k++) { const gx = x + k * 4 + Math.floor(hash(tx * 4 + k, ty) * 3); R(gx, y - 1 - Math.floor(hash(tx, ty * 4 + k) * 2), 1, 2, th.grass); }
+          if (hash(tx + 99, ty) < 0.12) { const fx = x + 3 + Math.floor(hash(tx, 99) * 10); R(fx, y - 3, 1, 3, th.grass2); R(fx - 1, y - 4, 3, 1, pick2(tx, ['#fff', '#ffd34d', '#ff6b9b', '#e63946'])); R(fx, y - 4, 1, 1, '#ffd34d'); }
+        } else if (openUp) R(x, y, 16, 1, dirtL);
         break;
-      case T.BRICK:
-        R(x, y, 16, 16, th.brick2);
-        for (let r = 0; r < 4; r++) { const o = r % 2 ? 4 : 0; for (let c = -1; c < 2; c++) R(x + o + c * 8 + 1, y + r * 4 + 1, 7, 3, th.brick); }
-        R(x, y, 16, 1, th.brick2);
+      }
+      case T.BRICK: {
+        R(x, y, 16, 16, brickD);
+        for (let r = 0; r < 4; r++) {
+          const o = r % 2 ? 4 : 0;
+          for (let c = -1; c < 2; c++) {
+            const bx = x + o + c * 8 + 1, by = y + r * 4 + 1, bw = 7;
+            const cx0 = Math.max(bx, x), cx1 = Math.min(bx + bw, x + 16);
+            if (cx1 <= cx0) continue;
+            const v = hash(tx * 3 + c, ty * 4 + r);
+            R(cx0, by, cx1 - cx0, 3, v > 0.7 ? shade(th.brick, 0.08) : v < 0.2 ? shade(th.brick, -0.08) : th.brick);
+            R(cx0, by, cx1 - cx0, 1, brickL);
+          }
+        }
+        if (openDown) R(x, y + 15, 16, 1, shade(th.brick2, -0.3));
         break;
+      }
       case T.STEEL:
         R(x, y, 16, 16, th.steel2); R(x + 1, y + 1, 14, 14, th.steel);
-        R(x + 2, y + 2, 2, 2, th.steel2); R(x + 12, y + 2, 2, 2, th.steel2); R(x + 2, y + 12, 2, 2, th.steel2); R(x + 12, y + 12, 2, 2, th.steel2);
-        R(x + 1, y + 1, 14, 1, '#c8d2dc');
+        R(x + 1, y + 1, 14, 1, '#d8e0e8'); R(x + 1, y + 1, 1, 14, shade(th.steel, 0.2));
+        R(x + 1, y + 14, 14, 1, shade(th.steel2, -0.2)); R(x + 14, y + 1, 1, 14, shade(th.steel2, -0.1));
+        for (const [rx, ry] of [[3, 3], [11, 3], [3, 11], [11, 11]]) { R(x + rx, y + ry, 2, 2, th.steel2); R(x + rx, y + ry, 1, 1, '#eef2f6'); }
+        if (hv < 0.3) { R(x + 5, y + 7, 4, 1, shade(th.steel, -0.12)); R(x + 8, y + 8, 3, 1, shade(th.steel, -0.12)); }
         break;
       case T.PLAT:
-        R(x, y, 16, 4, '#a1662f'); R(x, y + 4, 16, 1, '#6e4420'); R(x + 2, y + 5, 2, 4, '#6e4420'); R(x + 12, y + 5, 2, 4, '#6e4420');
+        R(x, y, 16, 4, '#a1662f'); R(x, y, 16, 1, '#c88a4a'); R(x, y + 4, 16, 1, '#5a3618');
+        R(x + 3 + Math.floor(hv * 6), y + 2, 5, 1, '#8a5626'); R(x + 1, y + 1, 1, 1, '#555'); R(x + 14, y + 1, 1, 1, '#555');
+        R(x + 2, y + 5, 2, 5, '#6e4420'); R(x + 12, y + 5, 2, 5, '#6e4420'); R(x + 2, y + 5, 1, 5, '#8a5626');
         break;
       case T.URAN: {
         const g = (Math.sin(gtime * 5 + tx) + 1) / 2;
-        ctx.globalAlpha = 0.2 + g * 0.25; circle(x + 8, y + 8, 11, '#39ff14'); ctx.globalAlpha = 1;
+        glow(x + 8, y + 8, 12, '#39ff14', 0.15 + g * 0.15);
         R(x + 2, y + 1, 12, 15, '#1e8f2b'); R(x + 3, y + 1, 10, 15, '#2ecc40'); R(x + 2, y + 3, 12, 1, '#145c1c'); R(x + 2, y + 12, 12, 1, '#145c1c');
+        R(x + 2, y + 1, 12, 1, '#7dff8a'); R(x + 11, y + 1, 2, 15, '#249a33');
         R(x + 5, y + 5, 6, 6, '#ffeb3b'); R(x + 7, y + 7, 2, 2, '#222'); R(x + 6, y + 5, 1, 2, '#222'); R(x + 9, y + 5, 1, 2, '#222'); R(x + 7, y + 10, 2, 1, '#222');
-        R(x + 4, y + 1, 1, 15, '#7dff8a');
+        R(x + 4, y + 2, 1, 13, '#a8ffb0');
         break;
       }
       case T.FIRE:
-        R(x + 1, y + 2, 14, 14, '#8b4513'); R(x + 2, y + 3, 12, 12, '#d62828'); R(x + 2, y + 7, 12, 2, '#fff'); R(x + 2, y + 11, 12, 2, '#fff');
-        R(x + 3, y + 3, 5, 4, '#1d3fa8'); R(x + 5, y + 4, 1, 1, '#fff');
-        R(x + 7, y - 1, 1, 3, '#555'); if (Math.floor(gtime * 6 + tx) % 2) R(x + 7, y - 2, 1, 1, '#ffd34d');
+        R(x + 1, y + 2, 14, 14, '#6e3a12'); R(x + 2, y + 3, 12, 12, '#d62828'); R(x + 2, y + 7, 12, 2, '#fff'); R(x + 2, y + 11, 12, 2, '#fff');
+        R(x + 3, y + 3, 5, 4, '#1d3fa8'); R(x + 5, y + 4, 1, 1, '#fff'); R(x + 4, y + 5, 3, 1, '#fff');
+        R(x + 2, y + 3, 12, 1, '#ff6b6b'); R(x + 1, y + 2, 1, 14, '#8b4513'); R(x + 14, y + 2, 1, 14, '#4a2408');
+        R(x + 7, y - 1, 1, 3, '#555'); if (Math.floor(gtime * 6 + tx) % 2) { R(x + 7, y - 2, 1, 1, '#ffd34d'); glow(x + 7.5, y - 2, 3, '#ffb000', 0.5); }
         break;
     }
     const hp = level.hp[i], max = TILE_HP[t];
     if (hp < max && max < Infinity && t !== T.URAN && t !== T.FIRE) {
       ctx.fillStyle = 'rgba(0,0,0,0.45)';
       ctx.fillRect(x + 4, y + 3, 1, 6); ctx.fillRect(x + 5, y + 8, 4, 1); ctx.fillRect(x + 9, y + 8, 1, 5);
-      if (hp < max / 2) { ctx.fillRect(x + 11, y + 2, 1, 4); ctx.fillRect(x + 2, y + 11, 4, 1); }
+      if (hp < max / 2) { ctx.fillRect(x + 11, y + 2, 1, 4); ctx.fillRect(x + 2, y + 11, 4, 1); ctx.fillRect(x + 12, y + 6, 2, 1); }
     }
   }
 }
+const pick2 = (n, arr) => arr[Math.abs(n) % arr.length];
 
 // ---- world
 function drawWorld() {
@@ -1733,13 +1935,14 @@ function drawWorld() {
     for (let i = 0; i < 5; i++) R(x + i * 3.75, y, 1, 20, '#666');
     if (Math.floor(gtime * 2) % 2) { R(x - 2, y - 12, 22, 9, '#fff'); R(x + 6, y - 3, 3, 2, '#fff'); text('HELP!', x + 9, y - 10, { size: 4, color: '#d62828', shadow: false, align: 'center' }); }
   }
-  for (const f of followers) drawPerson(Math.round(f.x), Math.round(f.y), f.facing, f.look, f.anim, Math.abs(f.vx) > 5, !f.onGround);
+  for (const f of followers) { if (f.onGround) groundShadow(f.x + 5, f.y + 18, 10); drawPerson(Math.round(f.x), Math.round(f.y), f.facing, f.look, f.anim, Math.abs(f.vx) > 5, !f.onGround); }
   for (const c of corpses) {
     ctx.save(); ctx.translate(Math.round(c.x), Math.round(c.y)); ctx.rotate(c.rot);
     drawBot(c.type, -c.w / 2, -c.h / 2, c.facing, 0, Math.floor(c.t * 20) % 2 === 0, false, '');
     ctx.restore();
   }
   for (const e of enemies) {
+    if (e.type !== 'jet') groundShadow(e.x + e.w / 2, e.y + e.h, e.w);
     drawBot(e.type, Math.round(e.x), Math.round(e.y), e.facing, e.anim, e.flash > 0, Math.abs(e.vx) > 1, e.state);
     if (e.state === 'alert') { R(Math.round(e.cx) - 1, Math.round(e.y) - 14, 3, 7, '#ffeb3b'); R(Math.round(e.cx) - 1, Math.round(e.y) - 6, 3, 2, '#ffeb3b'); }
   }
@@ -1761,6 +1964,7 @@ function drawWorld() {
       ctx.strokeStyle = '#ffd34d'; ctx.beginPath(); ctx.ellipse(p.cx, p.y - 4, 6, 2, 0, 0, Math.PI * 2); ctx.stroke();
       if (Math.random() < 0.3) part(p.cx + rand(-10, 10), p.cy + rand(-10, 10), 0, -20, 0.4, '#fff', 1.5, 0, 'star');
     }
+    if (p.onGround) groundShadow(p.cx, p.y + p.h, 10);
     drawHero(p.hero, Math.round(p.x) - 2, Math.round(p.y), p.facing, p.anim, p.moving && p.onGround, !p.onGround && !p.carried, p.muzzle > 0, p.v);
     if (players.length > 1) text('P' + (p.idx + 1), Math.round(p.cx), Math.round(p.y) - 9, { size: 4, color: PCOL[p.idx], align: 'center' });
   }
@@ -1772,14 +1976,15 @@ function drawWorld() {
   for (const b of projectiles) {
     const x = Math.round(b.x), y = Math.round(b.y), d = sign(b.vx);
     if (b.kind === 'rocket') { R(x - 4, y - 1, 7, 3, '#ddd'); R(d > 0 ? x + 2 : x - 5, y - 1, 3, 3, '#d62828'); R(d > 0 ? x - 6 : x + 3, y - 1, 2, 3, '#ffd34d'); }
-    else if (b.kind === 'laser') { ctx.globalAlpha = 0.5; R(x - 7, y - 2, 14, 4, '#39ff14'); ctx.globalAlpha = 1; R(x - 6, y - 1, 12, 2, '#d8ffc8'); }
-    else if (b.kind === 'bolt') { ctx.globalAlpha = 0.4; circle(x, y, 4, '#ff3b3b'); ctx.globalAlpha = 1; R(x - 2, y - 2, 4, 4, '#ffb36b'); }
+    else if (b.kind === 'laser') { glow(x, y, 7, '#39ff14', 0.4); ctx.globalAlpha = 0.5; R(x - 7, y - 2, 14, 4, '#39ff14'); ctx.globalAlpha = 1; R(x - 6, y - 1, 12, 2, '#d8ffc8'); }
+    else if (b.kind === 'bolt') { glow(x, y, 7, '#ff3b3b', 0.45); ctx.globalAlpha = 0.4; circle(x, y, 4, '#ff3b3b'); ctx.globalAlpha = 1; R(x - 2, y - 2, 4, 4, '#ffb36b'); }
     else if (b.kind === 'missile') { R(x - 5, y - 2, 10, 4, '#eee'); R(d > 0 ? x + 3 : x - 6, y - 2, 3, 4, '#d62828'); }
     else if (b.kind === 'bomb') { circle(x, y, 4, '#222'); R(x - 1, y - 6, 2, 2, Math.floor(gtime * 20) % 2 ? '#ffd34d' : '#ff3b3b'); }
     else if (b.kind === 'wave') { ctx.globalAlpha = 0.8; for (let i = 0; i < 3; i++) R(x - 3 + i * 2 * d, y - 4 - i * 2, 3, 10 - i, i === 0 ? '#a8d0ff' : '#4a90e2'); ctx.globalAlpha = 1; }
   }
   for (const n of nukes) drawNuke(n);
-  for (const e of explosions) {
+  for (const e of explosions) { // a bright glow under each fireball lights up everything around it
+    const kg = e.t / e.max; glow(e.x, e.y, e.r * (1.4 + kg), e.color === 'nuke' ? '#b6ff6e' : '#ff9a30', 0.5 * (1 - kg));
     const k = e.t / e.max, rr = e.r * (0.35 + 0.75 * Math.min(1, k * 3));
     ctx.globalAlpha = 1 - k;
     circle(e.x, e.y, rr, e.color === 'nuke' ? '#b6ff6e' : '#ff8c1a');
@@ -1817,17 +2022,33 @@ function drawBigBear(x, y, flying) {
 }
 function drawBoss(b) {
   const x = Math.round(b.x), y = Math.round(b.y), fl = b.flash > 0;
-  const body = fl ? '#fff' : '#6d7a91', dark = fl ? '#ddd' : '#434c5e';
-  const p = px(x, y, 44, b.facing);
   const step = b.state === 'walk' ? Math.round(Math.sin(b.anim * 8) * 2) : 0;
-  p(6, 40 + step, 10, 16 - step, dark); p(28, 40 - step, 10, 16 + step, dark); p(2, 52, 16, 4, '#222'); p(26, 52, 16, 4, '#222');
-  p(2, 14, 40, 28, body); p(2, 30, 40, 3, '#ffcc00'); for (let i = 0; i < 5; i++) p(4 + i * 8, 30, 4, 3, '#222');
-  p(10, 0, 24, 16, '#2b2d42'); p(12, 2, 20, 12, '#3d4058');
-  p(14, 7, 6, 3, '#ff3b3b'); p(25, 7, 6, 3, '#ff3b3b'); p(13, 5, 7, 2, '#000'); p(25, 5, 7, 2, '#000'); p(15, 4, 3, 1, '#000'); p(27, 4, 3, 1, '#000');
-  p(17, 12, 10, 2, '#ff3b3b'); p(16, 13, 2, 1, '#ff3b3b'); p(26, 13, 2, 1, '#ff3b3b');
-  p(0, 8, 10, 8, '#888'); p(1, 6, 2, 2, '#d62828'); p(4, 6, 2, 2, '#d62828'); p(7, 6, 2, 2, '#d62828');
-  p(36, 20, 18, 7, '#333'); p(52, 21, 3, 5, '#111');
-  p(16, 20, 12, 8, dark); text('MG', b.facing > 0 ? x + 22 : x + 22, y + 21, { size: 5, color: '#ffcc00', shadow: false, align: 'center' });
+  groundShadow(x + 22, y + 56, 40);
+  outlined(() => {
+    const body = fl ? '#fff' : '#6d7a91', dark = fl ? '#ddd' : '#434c5e', hi = fl ? '#fff' : '#9aa7bd', lo = fl ? '#ccc' : '#2c3342';
+    const p = px(x, y, 44, b.facing);
+    // legs with knee joints and big feet
+    p(6, 40 + step, 10, 16 - step, dark); p(6, 40 + step, 2, 16 - step, hi); p(6, 46, 10, 2, lo);
+    p(28, 40 - step, 10, 16 + step, dark); p(28, 40 - step, 2, 16 + step, hi); p(28, 46, 10, 2, lo);
+    p(2, 52, 16, 4, '#222'); p(2, 52, 16, 1, '#444'); p(26, 52, 16, 4, '#222'); p(26, 52, 16, 1, '#444');
+    // body: panels, rivets, hazard stripe
+    p(2, 14, 40, 28, body); p(2, 14, 40, 2, hi); p(2, 40, 40, 2, lo); p(2, 14, 2, 28, hi);
+    p(21, 16, 1, 14, lo); p(4, 22, 16, 1, lo); p(24, 22, 16, 1, lo);
+    for (const rx of [5, 17, 26, 38]) { p(rx, 18, 1, 1, hi); p(rx, 26, 1, 1, hi); }
+    p(2, 30, 40, 3, '#ffcc00'); for (let i = 0; i < 5; i++) p(4 + i * 8, 30, 4, 3, '#222');
+    // cockpit with an angry face
+    p(10, 0, 24, 16, '#2b2d42'); p(12, 2, 20, 12, '#3d4058'); p(12, 2, 20, 1, '#555a78');
+    p(14, 7, 6, 3, '#ff3b3b'); p(25, 7, 6, 3, '#ff3b3b'); p(15, 8, 1, 1, '#fff'); p(26, 8, 1, 1, '#fff');
+    p(13, 5, 7, 2, '#000'); p(25, 5, 7, 2, '#000'); p(15, 4, 3, 1, '#000'); p(27, 4, 3, 1, '#000');
+    p(17, 12, 10, 2, '#ff3b3b'); p(16, 13, 2, 1, '#ff3b3b'); p(26, 13, 2, 1, '#ff3b3b');
+    // missile pod and arm cannon
+    p(0, 8, 10, 8, '#888'); p(0, 8, 10, 1, '#aaa'); p(1, 6, 2, 2, '#d62828'); p(4, 6, 2, 2, '#d62828'); p(7, 6, 2, 2, '#d62828');
+    p(36, 20, 18, 7, '#333'); p(36, 20, 18, 1, '#555'); p(40, 21, 1, 5, '#ffcc00'); p(52, 21, 3, 5, '#111');
+    p(16, 20, 12, 8, dark); p(16, 20, 12, 1, hi);
+  });
+  text('MG', x + 22, y + 21, { size: 5, color: '#ffcc00', shadow: false, align: 'center' });
+  const ex = b.facing > 0 ? 0 : 1;
+  if (!fl) { glow(x + (ex ? 44 - 17 : 17), y + 8, 7, '#ff3b3b', 0.3); glow(x + (ex ? 44 - 28 : 28), y + 8, 7, '#ff3b3b', 0.3); }
 }
 function drawNuke(n) {
   const k = n.t / n.max, rise = easeOut(n.t / 1.1);
@@ -1902,8 +2123,8 @@ function drawTitle() {
   ctx.globalAlpha = 1; ctx.restore();
   R(0, 222, VW, 50, '#4caf50'); R(0, 226, VW, 46, '#8b5a2b');
   R(232, 168, 2, 54, '#ddd'); circle(233, 167, 2, '#ffd34d'); drawFlagCloth(234, 170, 30, 18, true);
-  ctx.save(); ctx.translate(178, 182); ctx.scale(2, 2); drawNoah(0, 0, 1, titleFx, false, false, false); ctx.restore();
-  ctx.save(); ctx.translate(274, 182); ctx.scale(2, 2); drawElijah(0, 0, -1, titleFx, false, false, false); ctx.restore();
+  ctx.save(); ctx.translate(178, 182); ctx.scale(2, 2); drawHero("noah", 0, 0, 1, titleFx, false, false, false); ctx.restore();
+  ctx.save(); ctx.translate(274, 182); ctx.scale(2, 2); drawHero("elijah", 0, 0, -1, titleFx, false, false, false); ctx.restore();
   const bob = Math.sin(titleFx * 3) * 2;
   text('BOOM', VW / 2 - 4, 14 + bob, { size: 24, color: '#e63946', align: 'right', shadowColor: '#1d1d3a' });
   text('BROTHERS', VW / 2 + 4, 14 + bob, { size: 24, color: '#1d5fd8', align: 'left', shadowColor: '#fff' });
@@ -1936,8 +2157,8 @@ function drawStory() {
     ['ELIJAH - uranium ray & ATOMIC blasts!', '#f4d03f', 6],
   ];
   lines.forEach(([s, c, z], i) => { if (stateT > i * 0.25) text(s, VW / 2, 20 + i * 18 + (i ? 10 : 0), { size: z, color: c, align: 'center' }); });
-  ctx.save(); ctx.translate(200, 206); ctx.scale(2, 2); drawNoah(0, 0, 1, titleFx, true, false, false); ctx.restore();
-  ctx.save(); ctx.translate(254, 206); ctx.scale(2, 2); drawElijah(0, 0, 1, titleFx, true, false, false); ctx.restore();
+  ctx.save(); ctx.translate(200, 206); ctx.scale(2, 2); drawHero("noah", 0, 0, 1, titleFx, true, false, false); ctx.restore();
+  ctx.save(); ctx.translate(254, 206); ctx.scale(2, 2); drawHero("elijah", 0, 0, 1, titleFx, true, false, false); ctx.restore();
   if (stateT > 1.5 && Math.floor(stateT * 2) % 2) text('PRESS ENTER / FIRE', VW / 2, 252, { size: 6, color: '#fff', align: 'center' });
 }
 function drawLevelCard() {
@@ -2045,8 +2266,8 @@ function drawIcon() {
   circle(S / 2, 132, 104, '#ff8c1a'); circle(S / 2, 132, 80, '#ffd34d'); circle(S / 2, 132, 50, '#fff3b0');
   drawFlagCloth(S / 2 - 54, 18, 108, 60, true);
   R(0, S - 40, S, 40, '#4caf50'); R(0, S - 34, S, 34, '#8b5a2b');
-  ctx.save(); ctx.translate(22, S - 40 - 120); ctx.scale(6, 6); drawNoah(0, 0, 1, 0, false, false, true, 0); ctx.restore();
-  ctx.save(); ctx.translate(S - 22 - 84, S - 40 - 120); ctx.scale(6, 6); drawElijah(0, 0, -1, 0, false, false, true, 0); ctx.restore();
+  ctx.save(); ctx.translate(22, S - 40 - 120); ctx.scale(6, 6); drawHero("noah", 0, 0, 1, 0, false, false, true, 0); ctx.restore();
+  ctx.save(); ctx.translate(S - 22 - 84, S - 40 - 120); ctx.scale(6, 6); drawHero("elijah", 0, 0, -1, 0, false, false, true, 0); ctx.restore();
   ctx.restore();
 }
 
