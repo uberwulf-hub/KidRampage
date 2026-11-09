@@ -54,8 +54,8 @@ addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
 const BINDS = {
   solo: { left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], up: ['KeyW', 'ArrowUp', 'Space'], down: ['KeyS', 'ArrowDown'],
-          fire: ['KeyF', 'KeyJ', 'KeyZ'], special: ['KeyG', 'KeyK', 'KeyX'], swap: ['KeyQ', 'KeyC'] },
-  p1:   { left: ['KeyA'], right: ['KeyD'], up: ['KeyW'], down: ['KeyS'], fire: ['KeyF'], special: ['KeyG'], swap: [] },
+          fire: ['KeyQ', 'KeyF', 'KeyJ', 'KeyZ'], special: ['KeyE', 'KeyG', 'KeyK', 'KeyX'], swap: ['KeyR', 'KeyC'] },
+  p1:   { left: ['KeyA'], right: ['KeyD'], up: ['KeyW'], down: ['KeyS'], fire: ['KeyQ', 'KeyF'], special: ['KeyE', 'KeyG'], swap: [] },
   p2:   { left: ['ArrowLeft'], right: ['ArrowRight'], up: ['ArrowUp'], down: ['ArrowDown'], fire: ['KeyK', 'Numpad1'], special: ['KeyL', 'Numpad2'], swap: [] },
 };
 const ACTIONS = ['left', 'right', 'up', 'down', 'fire', 'special', 'swap'];
@@ -107,7 +107,7 @@ canvas.addEventListener('mousedown', e => { initAudio(); if (state !== 'play') t
 // the right half of the keyboard, a gamepad, or the touch screen.
 const MAX_PLAYERS = 4;
 const PCOL = ['#6fb6ff', '#f4d03f', '#5ee07a', '#ff6b6b'];
-const JOIN_KEYS = { kbL: ['KeyF', 'KeyZ', 'KeyJ', 'Space'], kbR: ['KeyK', 'KeyL', 'Numpad1'] };
+const JOIN_KEYS = { kbL: ['KeyQ', 'KeyF', 'KeyZ', 'KeyJ', 'Space'], kbR: ['KeyK', 'KeyL', 'Numpad1'] };
 let party = []; // [{ dev, hero }] chosen on the join screen
 function padById(i) { const ps = navigator.getGamepads ? navigator.getGamepads() : []; const p = ps[i]; return p && p.connected ? p : null; }
 function devState(dev) {
@@ -144,7 +144,7 @@ function menuInput() {
   const any = codes => codes.some(down);
   const cur = {
     up: any(['ArrowUp', 'KeyW']), down: any(['ArrowDown', 'KeyS']), left: any(['ArrowLeft', 'KeyA']), right: any(['ArrowRight', 'KeyD']),
-    confirm: any(['Enter', 'Space', 'KeyF', 'KeyJ', 'KeyZ', 'KeyK']), pause: any(['KeyP', 'Escape']), mute: any(['KeyM']),
+    confirm: any(['Enter', 'Space', 'KeyQ', 'KeyF', 'KeyJ', 'KeyZ', 'KeyK']), pause: any(['KeyP', 'Escape']), mute: any(['KeyM']),
   };
   for (const p of gamepads()) {
     const s = padState(p);
@@ -657,7 +657,7 @@ function kidExplosion(p) { // pending chain explosions from barrels and crates
 class Player {
   constructor(idx, hero, x, y) {
     Object.assign(this, { idx, hero, x, y, w: 10, h: 20, vx: 0, vy: 0, facing: 1, hp: 3, maxHp: 3, specials: 3, cool: 0, inv: 2,
-      onGround: false, coyote: 0, jumpBuf: 0, alive: true, deadT: 0, anim: 0, shield: 0, prev: {}, climbing: false, muzzle: 0,
+      onGround: false, coyote: 0, jumpBuf: 0, airJumps: 1, alive: true, deadT: 0, anim: 0, shield: 0, prev: {}, climbing: false, muzzle: 0,
       waiting: false, ghostY: 0, carried: false, dropThrough: false, moving: false });
   }
   get cx() { return this.x + this.w / 2; }
@@ -693,12 +693,18 @@ class Player {
 
     if (pressed('up')) this.jumpBuf = 0.12; else this.jumpBuf -= dt;
     this.coyote = this.onGround ? 0.1 : this.coyote - dt;
+    // Wall climbing: push into any wall and hold jump to scale it.
+    const wall = dir !== 0 && touchingWall(this, dir);
+    if (this.onGround) this.airJumps = 1;
     if (this.jumpBuf > 0 && this.coyote > 0) {
       this.vy = -JUMP; this.jumpBuf = 0; this.coyote = 0; SFX.jump();
       for (let i = 0; i < 4; i++) part(this.cx, this.y + this.h, rand(-40, 40), rand(-20, 0), 0.3, '#ddd', 2, 0, 'smoke');
+    } else if (pressed('up') && !wall && this.airJumps > 0 && this.coyote <= 0) {
+      // Double jump: one extra hop in the air, so nothing is ever out of reach after a big blast.
+      this.vy = -JUMP * 0.9; this.airJumps--; this.jumpBuf = 0;
+      SFX.jump(); tone(560, 0.1, { vol: 0.04, slide: 400 });
+      for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2; part(this.cx, this.y + this.h, Math.cos(a) * 60, Math.sin(a) * 20 + 10, 0.35, '#fff', 2, 0, 'smoke'); }
     }
-    // Wall climbing: push into any wall and hold jump to scale it.
-    const wall = dir !== 0 && touchingWall(this, dir);
     this.climbing = false;
     if (wall && inp.up && this.vy > -CLIMB) { this.vy = -CLIMB; this.climbing = true; }
     else if (wall && this.vy > 50) this.vy = 50;
@@ -1862,7 +1868,7 @@ function drawHUD() {
   text('LIVES ' + lives, cx, 5, { size: 6, color: '#fff', align: 'center' });
   text(String(score).padStart(7, '0'), cx, 14, { size: 6, color: '#ffd34d', align: 'center' });
   if (NET.code) text('ONLINE: ' + NET.code, cx, 24, { size: 4, color: '#7dffa0', align: 'center' });
-  else if (players.length === 1) text('Q: SWAP BROTHER', cx, 24, { size: 4, color: '#bbb', align: 'center' });
+  else if (players.length === 1) text('R: SWAP BROTHER', cx, 24, { size: 4, color: '#bbb', align: 'center' });
   if (boss && boss.alive && boss.state !== 'sleep') {
     R(VW / 2 - 101, 38, 202, 8, '#000'); R(VW / 2 - 100, 39, 200 * boss.hp / boss.maxHp, 6, '#e63946');
     text('MEGA GRUMP 9000', VW / 2, 48, { size: 5, color: '#ff8a8a', align: 'center' });
@@ -1909,7 +1915,7 @@ function drawTitle() {
     const sel = i === menuIdx;
     text((sel ? '> ' : '  ') + s, VW / 2 - 100, MENU_Y + i * 16, { size: 7, color: sel ? '#ffd34d' : '#ddd' });
   });
-  const help = 'MOVE: ARROWS/WASD  JUMP: UP/SPACE  FIRE: Z/F  BOMB: X/G';
+  const help = 'MOVE: WASD/ARROWS   JUMP: W/SPACE (x2!)   FIRE: Q   BOMB: E';
   ctx.globalAlpha = 0.6; R(0, 238, VW, 34, '#000'); ctx.globalAlpha = 1;
   text(help, VW / 2, 242, { size: 5, color: '#fff', align: 'center' });
   text('Hold JUMP on a wall to climb!  Up to 4 players with gamepads.  M = mute', VW / 2, 254, { size: 4, color: '#bbb', align: 'center' });
@@ -1980,7 +1986,7 @@ function drawVictory() {
 
 function devLabel(dev) {
   if (dev.startsWith('net:')) dev = dev.split(':').slice(2).join(':');
-  if (dev === 'kbL') return party.length === 1 ? 'KEYBOARD' : 'WASD  F=FIRE G=BOMB';
+  if (dev === 'kbL') return party.length === 1 ? 'KEYBOARD' : 'WASD  Q=FIRE E=BOMB';
   if (dev === 'kbR') return 'ARROWS  K=FIRE L=BOMB';
   if (dev === 'touch') return 'TOUCH SCREEN';
   return 'GAMEPAD';
@@ -2009,7 +2015,7 @@ function drawLobby() {
     } else {
       if (Math.floor(gtime * 2 + i) % 2) text('PRESS FIRE', cx, y + 56, { size: 6, align: 'center' });
       text('TO JOIN', cx, y + 68, { size: 6, align: 'center' });
-      text('Left keys: F', cx, y + 96, { size: 4, color: '#aaa', align: 'center' });
+      text('Left keys: Q', cx, y + 96, { size: 4, color: '#aaa', align: 'center' });
       text('Right keys: K', cx, y + 106, { size: 4, color: '#aaa', align: 'center' });
       text('Gamepad: A or X', cx, y + 116, { size: 4, color: '#aaa', align: 'center' });
       if (touch.used) text('Touch: tap here', cx, y + 126, { size: 4, color: '#aaa', align: 'center' });

@@ -11,7 +11,7 @@ Choose **PLAY!**, then everyone joins on the **"Who is playing?"** screen (up to
 
 | Player device | Join | Move | Jump (hold on a wall to **climb**) | Fire | Bomb |
 |---|---|---|---|---|---|
-| Keyboard, left side | F | A / D | W | F | G |
+| Keyboard, left side | Q | A / D | W | Q | E |
 | Keyboard, right side | K | ← / → | ↑ | K | L |
 | Gamepad (any number) | A or X | stick / d-pad | A | X / triggers | B / Y |
 | Touch screen | tap | on-screen buttons | | | |
@@ -22,7 +22,8 @@ If the same brother is picked twice, each copy gets a different outfit color.
 All players share one pool of lives, and more players means more starting lives.
 
 Playing alone? Just press ENTER twice. A solo player can use any keys (arrows or WASD, Z/X, Space)
-and press **Q** to swap between brothers mid-level.
+and press **R** to swap between brothers mid-level. Q fires and E throws a bomb (the old Z/X and F/G keys still work).
+Press jump again in the air for a **double jump**.
 
 P / Esc pauses, M mutes.
 
