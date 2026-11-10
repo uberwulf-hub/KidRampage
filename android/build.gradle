@@ -1,0 +1,5 @@
+// The Android app is a full-screen WebView that runs the same index.html + game.js as the PC version.
+// .github/workflows/android.yml copies those two files into app/src/main/assets and builds the .apk.
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}

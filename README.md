@@ -27,6 +27,18 @@ Press jump again in the air for a **double jump**.
 
 P / Esc pauses, M mutes.
 
+## Android (phones and tablets)
+
+Each release also has `BoomBrothers-android.apk`. It's the same game in a full-screen landscape app, with big
+on-screen touch buttons (they appear as soon as you touch the screen). Get it from SauceStore on the phone, or
+open the release page on the phone, download the .apk and open it (allow "install unknown apps" when Android asks).
+The back button pauses the game or goes back in the menus. Online play works with a room code.
+
+The app lives in `android/` (a WebView that loads the same `index.html` and `game.js`), and
+`.github/workflows/android.yml` builds and signs it. To keep the signing key safe for good, add the
+`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_ALIAS` and `ANDROID_KEYSTORE_PASSWORD` secrets (the same setup as
+Race Track Mayhem); otherwise a key is made on the first release build and kept in the Actions cache.
+
 ## Playing online (each player on their own screen)
 
 Online play works the same way as Race Track Mayhem's online races. One screen **hosts**: it runs the real game
@@ -53,10 +65,35 @@ Pick **PLAY ONLINE** on the title screen, then **HOST A GAME** or **JOIN A GAME*
 
 Press ESC to leave an online game. If the host leaves, everyone else returns to the online menu.
 
+## The story
+
+It's the Fourth of July in Sahuarita, Arizona. Grandpa is grilling, Dad has his guitar, and the boys are ready for the
+biggest fireworks show ever, until the grumpy **Grumbots** crash the cookout. **MEGA GRUMP 9000** hates fun: he cages
+the family, steals the plushies and takes every firework to power his **Fun-Cancelling Ray**.
+
+1. **Grumbot Valley**: bust the family out of their cages in the desert.
+2. **Uranium Mines**: stop the drills digging uranium for the ray (Elijah's specialty).
+3. **Plushie Factory**: free the stolen plushies, even the turtle from the science center (Noah to the rescue).
+4. **Liberty Fortress**: Dad hacks the gate (`sudo open fortress`), then beat MEGA GRUMP before midnight.
+
+The ending: the ray backfires into the biggest fireworks show ever, Noah hands MEGA GRUMP a teddy bear, and he smiles
+for the very first time. He was just lonely, so everyone invites him to the cookout. A short story chapter plays before
+each level (`STORY` in `game.js`).
+
 ## The heroes
 
-- **Noah**: fires pop-rockets that blow up dirt and bricks. His bomb is a **plushie bear** that bounces around and goes *KA-BEAR!*
-- **Elijah**: rapid-fire **uranium ray**. His bomb is a glowing uranium core that sets off an **ATOMIC BLAST** with a mushroom cloud.
+Every hero's **fire** (Q) and **special** (E) power up each level: level 1 starts simple, and by level 4 each move
+has turned into something new. The level card shows everyone's new moves, and the HUD shows each hero's level.
+
+| Level | **Noah** (exploding things, plushies) | **Elijah** (uranium, atomics) | **Andrew** (running, BJJ, sysadmin, guitar, drums) |
+|---|---|---|---|
+| 1 | Pop rocket / Teddy bomb | Uranium ray / Mini nuke | Power chord (a sound wave) / **BJJ takedown**: a running dash that grabs and slams a robot |
+| 2 | Twin rockets / Teddy triplets (splits into 3) | Piercing ray / Atomic blast | Big riff / **Drum solo**: shockwave rings |
+| 3 | Homing rockets / Rolling mega teddy | Double ray / Chain reaction | Triple chord / **sudo kill -9 bots**: zaps every robot on screen |
+| 4 | Homing firework rockets / Teddy airstrike | Gamma beam (3-way) / Atomic sun | Shred solo (a stream of notes) / **Rock concert**: amps drop from the sky, drums and zaps |
+
+Andrew runs a little faster than the brothers, and his sound waves go around robot shields.
+Pick a hero with left/right on the join screen; playing alone, press **R** to switch hero mid-level.
 
 ## Things in the world
 
@@ -80,12 +117,14 @@ Press ESC to leave an online game. If the host leaves, everyone else returns to 
 |---|---|
 | `index.html` | The page. Open it to play. |
 | `game.js` | The whole game: levels, heroes, robots, drawing, sound, and online play. |
+| `audio/` | Music and sound effects, `manifest.js` (which file plays when) and `CREDITS.md`. |
 | `server.js` | Optional home-network server: serves the game and passes messages between screens. |
 | `server/relay/` | The internet game server for Cloudflare. Its `relay-core.mjs` rules are shared with `server.js`. |
 | `.github/workflows/relay.yml` | One-click deploy of the internet game server (Actions > Relay server). |
 | `launcher/` | `BoomBrothers.exe`, a tiny Windows program that opens the game in its own window (for SauceStore). |
 | `saucestore.json`, `store/`, `release-notes/` | The SauceStore listing, its icon, and each version's notes. |
-| `.github/workflows/release.yml` | Builds `BoomBrothers-windows.zip` and publishes a release when you push a version tag. |
+| `.github/workflows/release.yml` | Builds `BoomBrothers-windows.zip` and the Android `.apk` and publishes a release. |
+| `android/`, `.github/workflows/android.yml` | The Android app (a full-screen WebView) and its build. |
 
 ## Publishing to SauceStore
 
@@ -103,6 +142,23 @@ SauceStore finds the release on its own within about 10 minutes.
 - `rightsConfirmed` must be `true` for the store to show the game. It's your statement that you checked the
   content against SauceStore's content policy.
 - `store/icon.png` is drawn from the game's own sprites: `node tools/make-icon.js` redraws it (needs Playwright).
+
+## The look
+
+2.5D: the game plays in 2D, the characters are outlined pixel art, and the world has depth. Blocks show their
+3D tops and sides in perspective, and each level has a weird low-poly 3D background drawn by a tiny built-in 3D
+renderer (no libraries; see `scene3D` in `game.js`): a ringed planet over floating desert mesas and spinning saguaros,
+giant glowing uranium crystals, floating teddy heads and gears, and spinning stars and firework rockets.
+
+## Music and sound effects
+
+The title screen, levels and boss fight have their own music, and explosions, rockets, pickups and more use
+recorded sounds. All of it is free **CC0** audio from OpenGameArt and Kenney (see [audio/CREDITS.md](audio/CREDITS.md)).
+Everything else (lasers, guitar chords, drums, zaps, the Yankee Doodle fanfare) is synthesized by the game.
+
+To swap or add sounds, drop files into `audio/sfx/` or `audio/music/` and list them in `audio/manifest.js`. You can
+give each level its own song (`level1` to `level4`) or use your own music, such as songs made with Suno.
+Anything missing falls back to the built-in sounds.
 
 ## Customize
 

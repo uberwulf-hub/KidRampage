@@ -1,0 +1,41 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Version comes from the release (BB_VERSION=v1.2.3); versionCode must grow with every release.
+def ver = (System.getenv('BB_VERSION') ?: 'v1.0.0').replaceFirst('^v', '')
+def nums = ver.tokenize('.').collect { it.replaceAll('[^0-9]', '') ?: '0' }.collect { it.toInteger() }
+while (nums.size() < 3) nums << 0
+
+android {
+    namespace 'com.uberwulf.boombrothers'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.uberwulf.boombrothers'
+        minSdk 24
+        targetSdk 34
+        versionCode nums[0] * 10000 + nums[1] * 100 + nums[2]
+        versionName ver
+    }
+
+    // Signed with one permanent key (see .github/workflows/android.yml); Android only installs an
+    // update over an older copy when both were signed with the same key.
+    signingConfigs {
+        release {
+            if (System.getenv('BB_KEYSTORE')) {
+                storeFile file(System.getenv('BB_KEYSTORE'))
+                storePassword System.getenv('BB_KEY_PASS')
+                keyAlias System.getenv('BB_KEY_ALIAS')
+                keyPassword System.getenv('BB_KEY_PASS')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (System.getenv('BB_KEYSTORE')) signingConfig signingConfigs.release
+        }
+    }
+}
