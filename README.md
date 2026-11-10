@@ -102,6 +102,7 @@ Pick a hero with left/right on the join screen; playing alone, press **R** to sw
 |---|---|
 | `index.html` | The page. Open it to play. |
 | `game.js` | The whole game: levels, heroes, robots, drawing, sound, and online play. |
+| `audio/` | Music and sound effects, `manifest.js` (which file plays when) and `CREDITS.md`. |
 | `server.js` | Optional home-network server: serves the game and passes messages between screens. |
 | `server/relay/` | The internet game server for Cloudflare. Its `relay-core.mjs` rules are shared with `server.js`. |
 | `.github/workflows/relay.yml` | One-click deploy of the internet game server (Actions > Relay server). |
@@ -126,6 +127,16 @@ SauceStore finds the release on its own within about 10 minutes.
 - `rightsConfirmed` must be `true` for the store to show the game. It's your statement that you checked the
   content against SauceStore's content policy.
 - `store/icon.png` is drawn from the game's own sprites: `node tools/make-icon.js` redraws it (needs Playwright).
+
+## Music and sound effects
+
+The title screen, levels and boss fight have their own music, and explosions, rockets, pickups and more use
+recorded sounds. All of it is free **CC0** audio from OpenGameArt and Kenney (see [audio/CREDITS.md](audio/CREDITS.md)).
+Everything else (lasers, guitar chords, drums, zaps, the Yankee Doodle fanfare) is synthesized by the game.
+
+To swap or add sounds, drop files into `audio/sfx/` or `audio/music/` and list them in `audio/manifest.js`. You can
+give each level its own song (`level1` to `level4`) or use your own music, such as songs made with Suno.
+Anything missing falls back to the built-in sounds.
 
 ## Customize
 

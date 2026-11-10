@@ -163,6 +163,7 @@ function menuInput() {
 // ---------------------------------------------------------------- audio
 let actx = null, master = null, sfxGain = null, musicGain = null, noiseBuf = null, muted = false;
 function initAudio() {
+  if (musicEl && musicEl.paused) musicEl.play().catch(() => {});
   if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
   try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
   master = actx.createGain(); master.gain.value = 0.6; master.connect(actx.destination);
@@ -231,19 +232,75 @@ const SFX = {
     s.forEach((f, i) => { if (f) { tone(f * 2, 0.16, { vol: 0.07, delay: i * 0.15 }); tone(f, 0.16, { type: 'triangle', vol: 0.08, delay: i * 0.15 }); } });
   },
 };
-// background march (original tune)
+// ---- recorded sounds and music (optional): audio/manifest.js lists files that replace the built-in
+// synthesized sounds. Played with <audio> elements, which also work when the game is opened as a file
+// and inside the Android app. Anything missing falls back to the built-in sound.
+const AUDIO = window.BOOM_AUDIO || { sfx: {}, music: {} };
+const sfxPools = {}, sfxLast = {};
+for (const [name, def] of Object.entries(AUDIO.sfx || {})) {
+  if (!SFX[name] || !def || !def.files || !def.files.length) continue;
+  sfxPools[name] = def.files.map(f => Array.from({ length: 3 }, () => {
+    const a = new Audio('audio/sfx/' + f); a.preload = 'auto';
+    a.addEventListener('error', () => { a.broken = true; });
+    return a;
+  }));
+  const synth = SFX[name];
+  SFX[name] = (...args) => { if (!playSfxFile(name) || def.mix) synth(...args); };
+}
+function playSfxFile(name) {
+  const pools = sfxPools[name];
+  if (!pools) return false;
+  if (muted) return true;
+  const now = performance.now();
+  if (now - (sfxLast[name] || 0) < 45) return true; // a big chain reaction shouldn't stack 30 copies
+  const pool = pick(pools), a = pool.find(x => x.paused || x.ended) || pool[0];
+  if (a.broken) return false;
+  sfxLast[name] = now;
+  try { a.currentTime = 0; a.volume = clamp(AUDIO.sfx[name].vol ?? 0.7, 0, 1); const pr = a.play(); if (pr) pr.catch(() => {}); } catch (e) { return false; }
+  return true;
+}
+let musicEl = null, musicSlot = '';
+const MENU_STATES = new Set(['title', 'lobby', 'online', 'code', 'story', 'netwait']);
+function musicSlotFor(fast) {
+  if (fast) return 'boss';
+  if (MENU_STATES.has(state) || state === 'victory') return 'menu';
+  return 'level' + (levelIndex + 1);
+}
+function playMusicFile(slot) {
+  const m = AUDIO.music || {};
+  const file = m[slot] || (slot.startsWith('level') ? m.level : null);
+  if (!file) return false;
+  if (musicEl && musicSlot === slot && !musicEl.broken) { if (musicEl.paused) musicEl.play().catch(() => {}); return true; }
+  stopMusicFile();
+  const el = new Audio('audio/music/' + file);
+  el.loop = true; el.volume = muted ? 0 : clamp(m.volume ?? 0.45, 0, 1);
+  el.addEventListener('error', () => { el.broken = true; if (musicEl === el) { musicEl = null; musicSlot = ''; startSynthMusic(slot === 'boss'); } });
+  el.play().catch(() => {}); // browsers wait for the first key press or tap; initAudio retries
+  musicEl = el; musicSlot = slot;
+  return true;
+}
+function stopMusicFile() { if (musicEl) { musicEl.pause(); musicEl.src = ''; } musicEl = null; musicSlot = ''; }
+
+// background march (original tune), used when there's no music file
 const MELODY = [72, 76, 79, 76, 72, 0, 74, 76, 77, 76, 74, 72, 74, 0, 69, 0, 71, 74, 79, 77, 76, 74, 72, 74, 76, 0, 72, 0, 72, 0, 79, 0];
 const BASS = [48, 55, 48, 55, 41, 48, 41, 48, 43, 50, 43, 50, 48, 55, 48, 43];
 const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
 let musicOn = false, musicStep = 0, nextNoteT = 0, musicTimer = null, musicTempo = 1, pendingMusic = null;
 function startMusic(fast) {
+  const slot = musicSlotFor(fast);
+  if (musicEl && musicSlot === slot) { musicOn = true; musicTempo = fast ? 1.3 : 1; return; }
   stopMusic();
+  musicTempo = fast ? 1.3 : 1;
+  if (playMusicFile(slot)) { musicOn = true; return; }
+  startSynthMusic(fast);
+}
+function startSynthMusic(fast) {
   if (!actx) { pendingMusic = fast ? 'fast' : 'normal'; return; }
   pendingMusic = null;
   musicTempo = fast ? 1.3 : 1; musicOn = true; musicStep = 0; nextNoteT = actx.currentTime + 0.1;
   musicTimer = setInterval(schedMusic, 40);
 }
-function stopMusic() { musicOn = false; pendingMusic = null; if (musicTimer) clearInterval(musicTimer); musicTimer = null; }
+function stopMusic() { musicOn = false; pendingMusic = null; if (musicTimer) clearInterval(musicTimer); musicTimer = null; stopMusicFile(); }
 function schedMusic() {
   if (!actx || !musicOn) return;
   const e8 = 0.2 / musicTempo;
@@ -259,7 +316,7 @@ function schedMusic() {
     nextNoteT += e8; musicStep++;
   }
 }
-function toggleMute() { muted = !muted; if (master) master.gain.value = muted ? 0 : 0.6; banner = { str: muted ? 'SOUND OFF' : 'SOUND ON', t: 1, color: '#fff' }; }
+function toggleMute() { muted = !muted; if (master) master.gain.value = muted ? 0 : 0.6; if (musicEl) musicEl.volume = muted ? 0 : clamp((AUDIO.music || {}).volume ?? 0.45, 0, 1); banner = { str: muted ? 'SOUND OFF' : 'SOUND ON', t: 1, color: '#fff' }; }
 
 // ---------------------------------------------------------------- tiles
 const T = { EMPTY: 0, DIRT: 1, BRICK: 2, STEEL: 3, PLAT: 4, URAN: 5, FIRE: 6 };
@@ -1504,6 +1561,7 @@ function update(dt) {
   } finally { latched.clear(); typed.length = 0; NET.remoteLatch = {}; }
 }
 function updateState(dt) {
+  if (actx && MENU_STATES.has(state) && !musicOn && (AUDIO.music || {}).menu) startMusic(false);
   const m = menuInput();
   if (m.mute) toggleMute();
   switch (state) {
@@ -2980,7 +3038,12 @@ requestAnimationFrame(frame);
 // Small debug/test hook (handy for trying out levels from the browser console).
 window.BOOM = {
   get state() { return state; }, get players() { return players; }, get enemies() { return enemies; }, get boss() { return boss; },
-  get level() { return level; }, get net() { return NET; }, get lives() { return lives; }, get score() { return score; }, get camX() { return camX; },
+  get level() { return level; }, get net() { return NET; },
+  get audio() {
+    const files = Object.values(sfxPools).flat(2);
+    return { music: musicSlot, musicPlaying: !!(musicEl && !musicEl.paused), musicTime: musicEl ? +musicEl.currentTime.toFixed(1) : 0,
+      sfxFiles: files.length, sfxReady: files.filter(a => a.readyState >= 2).length, sfxBroken: files.filter(a => a.broken).length };
+  }, get lives() { return lives; }, get score() { return score; }, get camX() { return camX; },
   get party() { return party; },
   start(levelNum = 1, n = 1, hero = 'noah') {
     party = Array.from({ length: n }, (_, i) => ({ dev: ['kbL', 'kbR', 'none', 'none'][i], hero: n === 1 ? hero : HERO_ORDER[i % HERO_ORDER.length] }));

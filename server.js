@@ -24,7 +24,7 @@ const os = require('os');
 const PORT = Number(process.env.PORT) || 8080;
 const MAX_MESSAGE = 1 << 20; // 1 MB
 const FILES = { '/': 'index.html', '/index.html': 'index.html', '/game.js': 'game.js' };
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.ogg': 'audio/ogg', '.mp3': 'audio/mpeg', '.wav': 'audio/wav' };
 
 // The relay rules live in server/relay/relay-core.mjs, shared with the Cloudflare version.
 let Room, newCode, PROTOCOL;
@@ -41,7 +41,8 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ server: 'boombros', protocol: PROTOCOL, rooms: list }));
     return;
   }
-  const name = FILES[url];
+  const audio = /^\/audio\/((sfx|music)\/[A-Za-z0-9_-]+\.(ogg|mp3|wav)|manifest\.js)$/.exec(url);
+  const name = FILES[url] || (audio ? url.slice(1) : null);
   if (!name) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Not found'); return; }
   fs.readFile(path.join(__dirname, name), (err, data) => {
     if (err) { res.writeHead(500); res.end('Could not read ' + name); return; }

@@ -29,6 +29,7 @@ on:
       - "android/**"
       - "index.html"
       - "game.js"
+      - "audio/**"
       - ".github/workflows/android.yml"
 
 permissions:
@@ -82,7 +83,7 @@ jobs:
       - name: Put the game into the app
         run: |
           mkdir -p android/app/src/main/assets
-          cp index.html game.js android/app/src/main/assets/
+          cp -r index.html game.js audio android/app/src/main/assets/
 
       - name: Build the .apk
         working-directory: android
