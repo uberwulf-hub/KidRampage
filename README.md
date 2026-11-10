@@ -55,8 +55,18 @@ Press ESC to leave an online game. If the host leaves, everyone else returns to 
 
 ## The heroes
 
-- **Noah**: fires pop-rockets that blow up dirt and bricks. His bomb is a **plushie bear** that bounces around and goes *KA-BEAR!*
-- **Elijah**: rapid-fire **uranium ray**. His bomb is a glowing uranium core that sets off an **ATOMIC BLAST** with a mushroom cloud.
+Every hero's **fire** (Q) and **special** (E) power up each level: level 1 starts simple, and by level 4 each move
+has turned into something new. The level card shows everyone's new moves, and the HUD shows each hero's level.
+
+| Level | **Noah** (exploding things, plushies) | **Elijah** (uranium, atomics) | **Andrew** (running, BJJ, sysadmin, guitar, drums) |
+|---|---|---|---|
+| 1 | Pop rocket / Teddy bomb | Uranium ray / Mini nuke | Power chord (a sound wave) / **BJJ takedown**: a running dash that grabs and slams a robot |
+| 2 | Twin rockets / Teddy triplets (splits into 3) | Piercing ray / Atomic blast | Big riff / **Drum solo**: shockwave rings |
+| 3 | Homing rockets / Rolling mega teddy | Double ray / Chain reaction | Triple chord / **sudo kill -9 bots**: zaps every robot on screen |
+| 4 | Homing firework rockets / Teddy airstrike | Gamma beam (3-way) / Atomic sun | Shred solo (a stream of notes) / **Rock concert**: amps drop from the sky, drums and zaps |
+
+Andrew runs a little faster than the brothers, and his sound waves go around robot shields.
+Pick a hero with left/right on the join screen; playing alone, press **R** to switch hero mid-level.
 
 ## Things in the world
 
