@@ -65,6 +65,21 @@ Pick **PLAY ONLINE** on the title screen, then **HOST A GAME** or **JOIN A GAME*
 
 Press ESC to leave an online game. If the host leaves, everyone else returns to the online menu.
 
+## The story
+
+It's the Fourth of July in Sahuarita, Arizona. Grandpa is grilling, Dad has his guitar, and the boys are ready for the
+biggest fireworks show ever, until the grumpy **Grumbots** crash the cookout. **MEGA GRUMP 9000** hates fun: he cages
+the family, steals the plushies and takes every firework to power his **Fun-Cancelling Ray**.
+
+1. **Grumbot Valley**: bust the family out of their cages in the desert.
+2. **Uranium Mines**: stop the drills digging uranium for the ray (Elijah's specialty).
+3. **Plushie Factory**: free the stolen plushies, even the turtle from the science center (Noah to the rescue).
+4. **Liberty Fortress**: Dad hacks the gate (`sudo open fortress`), then beat MEGA GRUMP before midnight.
+
+The ending: the ray backfires into the biggest fireworks show ever, Noah hands MEGA GRUMP a teddy bear, and he smiles
+for the very first time. He was just lonely, so everyone invites him to the cookout. A short story chapter plays before
+each level (`STORY` in `game.js`).
+
 ## The heroes
 
 Every hero's **fire** (Q) and **special** (E) power up each level: level 1 starts simple, and by level 4 each move

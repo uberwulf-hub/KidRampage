@@ -6,7 +6,7 @@
    ===================================================================== */
 
 // ====== EASY-TO-EDIT SETTINGS (put your real family names here!) ======
-const FAMILY = ['MOM', 'DAD', 'GRANDMA', 'GRANDPA', 'UNCLE', 'AUNTIE', 'COUSIN', 'BABY'];
+const FAMILY = ['MOM', 'GRANDPA', 'GRANDMA', 'AUNT ALLISON', 'UNCLE AARON', 'UNCLE ANTHONY', 'MOM', 'GRANDPA'];
 const START_LIVES = 5;
 // ======================================================================
 
@@ -487,13 +487,13 @@ const CHUNKS = {
 };
 
 const LEVELS = [
-  { name: 'GRUMBOT VALLEY', tag: 'Smash the Grumbots! Free the family!', theme: 'valley',
+  { name: 'GRUMBOT VALLEY', tag: 'Bust the family out of the desert cages!', theme: 'valley',
     chunks: ['start', 'hills', 'bunker', 'pit', 'checkpoint', 'tower', 'alley', 'cliff', 'hills2', 'end'] },
-  { name: 'URANIUM MINES', tag: 'Grab the glowing uranium!', theme: 'mine',
+  { name: 'URANIUM MINES', tag: 'Stop the drills powering the Fun-Cancelling Ray!', theme: 'mine',
     chunks: ['start', 'mine1', 'mine2', 'pit', 'checkpoint', 'mine3', 'alley', 'mine1', 'mine2', 'end'] },
-  { name: 'PLUSHIE FACTORY', tag: 'The Grumbots are stealing the plushies!', theme: 'factory',
+  { name: 'PLUSHIE FACTORY', tag: 'Free the stolen plushies (and the turtle)!', theme: 'factory',
     chunks: ['start', 'factory2', 'factory1', 'pit', 'checkpoint', 'alley', 'factory1', 'tower', 'factory2', 'cliff', 'end'] },
-  { name: 'LIBERTY FORTRESS', tag: 'Beat MEGA GRUMP and raise the flag!', theme: 'fortress',
+  { name: 'LIBERTY FORTRESS', tag: 'Beat MEGA GRUMP before midnight!', theme: 'fortress',
     chunks: ['start', 'fort2', 'fort1', 'bunker', 'checkpoint', 'fort1', 'alley', 'fort2', 'boss'] },
 ];
 
@@ -1415,7 +1415,7 @@ const heroVariant = i => party.slice(0, i).filter(q => q.hero === party[i].hero)
 function startGame() {
   lives = startLives(); score = 0; rescuedAll = []; familyCounter = 0;
   levelIndex = startLevelSel;
-  if (levelIndex === 0) { state = 'story'; stateT = 0; } else startLevel(levelIndex);
+  state = 'story'; stateT = 0; // every level starts with its chapter of the story
 }
 function startLevel(i) {
   levelIndex = i;
@@ -1548,7 +1548,7 @@ function updateCutscene(dt, m) {
   if (t > 5.5) cut.summary = true;
   if (cut.summary && (m.confirm || t > 14)) {
     if (cut.ending === 'final') { state = 'victory'; stateT = 0; startMusic(false); }
-    else startLevel(levelIndex + 1);
+    else { levelIndex++; state = 'story'; stateT = 0; }
   }
 }
 
@@ -1992,6 +1992,13 @@ function cloud(x, y, s) {
   circle(x, y, 10 * s, '#fff'); circle(x + 12 * s, y - 4, 12 * s, '#fff'); circle(x + 26 * s, y, 9 * s, '#fff');
   R(x - 8 * s, y + 2, 42 * s, 6 * s, '#fff');
 }
+function saguaro(x, y, s) { // the big Arizona cactus
+  const c = '#3a7a3a', d = '#2c5e2c', h = 26 * s;
+  R(x - 2 * s, y - h, 4 * s, h, c); R(x - 2 * s, y - h, 1 * s, h, '#4f9a4f'); R(x + 1 * s, y - h, 1 * s, h, d);
+  R(x - 8 * s, y - h * 0.62, 6 * s, 3 * s, c); R(x - 8 * s, y - h * 0.9, 3 * s, h * 0.3, c);
+  R(x + 2 * s, y - h * 0.48, 5 * s, 3 * s, c); R(x + 5 * s, y - h * 0.75, 3 * s, h * 0.3, c);
+  R(x - 1 * s, y - h - 1, 2 * s, 1, '#ffd34d');
+}
 function tree(x, y, s, c, c2) {
   R(x - 1, y - 6 * s, 2, 6 * s + 2, '#4a3220');
   circle(x, y - 9 * s, 6 * s, c); circle(x - 3 * s, y - 6 * s, 4 * s, c); circle(x + 3 * s, y - 6 * s, 4 * s, c);
@@ -2023,7 +2030,10 @@ function drawBackground() {
     // hills with trees, then near bushes
     const off1 = ox * 0.3;
     ridge(off1, 192, 22, '#6aa85a', 0.013);
-    for (let i = 0; i < 16; i++) { const tx = wrap(i * 41 - off1, VW + 60) - 30; tree(tx, ridgeY(tx, off1, 192, 22, 0.013) + 2, 1 + (i % 3) * 0.2, '#3f7d3a', '#5aa04f'); }
+    for (let i = 0; i < 16; i++) {
+      const tx = wrap(i * 41 - off1, VW + 60) - 30, ty = ridgeY(tx, off1, 192, 22, 0.013) + 2;
+      if (i % 3 === 1) saguaro(tx, ty, 1 + (i % 2) * 0.3); else tree(tx, ty, 1 + (i % 3) * 0.2, '#3f7d3a', '#5aa04f');
+    }
     const off2 = ox * 0.5;
     ridge(off2, 214, 12, '#4b944a', 0.021);
     for (let i = 0; i < 14; i++) { const bx = wrap(i * 53 - off2, VW + 40) - 20, by = ridgeY(bx, off2, 214, 12, 0.021); circle(bx, by + 2, 7, '#3c7f3c'); circle(bx + 6, by + 3, 5, '#3c7f3c'); circle(bx - 2, by, 3, '#5aa04f'); }
@@ -2338,9 +2348,14 @@ function drawBoss(b) {
     p(2, 30, 40, 3, '#ffcc00'); for (let i = 0; i < 5; i++) p(4 + i * 8, 30, 4, 3, '#222');
     // cockpit with an angry face
     p(10, 0, 24, 16, '#2b2d42'); p(12, 2, 20, 12, '#3d4058'); p(12, 2, 20, 1, '#555a78');
-    p(14, 7, 6, 3, '#ff3b3b'); p(25, 7, 6, 3, '#ff3b3b'); p(15, 8, 1, 1, '#fff'); p(26, 8, 1, 1, '#fff');
-    p(13, 5, 7, 2, '#000'); p(25, 5, 7, 2, '#000'); p(15, 4, 3, 1, '#000'); p(27, 4, 3, 1, '#000');
-    p(17, 12, 10, 2, '#ff3b3b'); p(16, 13, 2, 1, '#ff3b3b'); p(26, 13, 2, 1, '#ff3b3b');
+    if (b.happy) { // the ending: no more grumpy
+      p(14, 7, 6, 2, '#7dd3ff'); p(25, 7, 6, 2, '#7dd3ff'); p(14, 6, 6, 1, '#7dd3ff'); p(25, 6, 6, 1, '#7dd3ff');
+      p(17, 12, 10, 1, '#ffd34d'); p(16, 11, 2, 1, '#ffd34d'); p(26, 11, 2, 1, '#ffd34d'); p(13, 10, 2, 1, '#ff8ad8'); p(29, 10, 2, 1, '#ff8ad8');
+    } else {
+      p(14, 7, 6, 3, '#ff3b3b'); p(25, 7, 6, 3, '#ff3b3b'); p(15, 8, 1, 1, '#fff'); p(26, 8, 1, 1, '#fff');
+      p(13, 5, 7, 2, '#000'); p(25, 5, 7, 2, '#000'); p(15, 4, 3, 1, '#000'); p(27, 4, 3, 1, '#000');
+      p(17, 12, 10, 2, '#ff3b3b'); p(16, 13, 2, 1, '#ff3b3b'); p(26, 13, 2, 1, '#ff3b3b');
+    }
     // missile pod and arm cannon
     p(0, 8, 10, 8, '#888'); p(0, 8, 10, 1, '#aaa'); p(1, 6, 2, 2, '#d62828'); p(4, 6, 2, 2, '#d62828'); p(7, 6, 2, 2, '#d62828');
     p(36, 20, 18, 7, '#333'); p(36, 20, 18, 1, '#555'); p(40, 21, 1, 5, '#ffcc00'); p(52, 21, 3, 5, '#111');
@@ -2348,7 +2363,8 @@ function drawBoss(b) {
   });
   text('MG', x + 22, y + 21, { size: 5, color: '#ffcc00', shadow: false, align: 'center' });
   const ex = b.facing > 0 ? 0 : 1;
-  if (!fl) { glow(x + (ex ? 44 - 17 : 17), y + 8, 7, '#ff3b3b', 0.3); glow(x + (ex ? 44 - 28 : 28), y + 8, 7, '#ff3b3b', 0.3); }
+  const eyeGlow = b.happy ? '#7dd3ff' : '#ff3b3b';
+  if (!fl) { glow(x + (ex ? 44 - 17 : 17), y + 8, 7, eyeGlow, 0.3); glow(x + (ex ? 44 - 28 : 28), y + 8, 7, eyeGlow, 0.3); }
 }
 function drawNuke(n) {
   if (n.s && n.s !== 1) { ctx.save(); ctx.translate(n.x, n.y); ctx.scale(n.s, n.s); drawNuke({ ...n, x: 0, y: 0, s: 1 }); ctx.restore(); return; }
@@ -2444,25 +2460,72 @@ function drawTitle() {
   text('Hold JUMP on a wall to climb!  Up to 4 players with gamepads.  M = mute', VW / 2, 254, { size: 4, color: '#bbb', align: 'center' });
   text('ENTER to start', VW / 2, 262, { size: 4, color: '#ffd34d', align: 'center' });
 }
+// The story: one chapter before each level (white = story, colours = who's talking).
+const STORY = [
+  { title: 'THE FOURTH OF JULY', color: '#ff3b3b', cast: ['noah', 'elijah', 'andrew'], grump: true, lines: [
+    ['It\'s the Fourth of July in Sahuarita, Arizona.', '#fff'],
+    ['Grandpa is grilling, Dad has his guitar, and the boys', '#fff'],
+    ['are ready for the BIGGEST fireworks show ever...', '#fff'],
+    ['', ''],
+    ['...until the grumpy GRUMBOTS crash the cookout!', '#ff8a8a'],
+    ['MEGA GRUMP 9000 hates fun. He caged the family,', '#fff'],
+    ['stole the plushies and took every firework to power', '#fff'],
+    ['his FUN-CANCELLING RAY!', '#ffd34d'],
+    ['Only the BOOM BROTHERS can save the Fourth!', '#7dffa0'],
+  ] },
+  { title: 'CHAPTER 2: DOWN THE MINE', color: '#39ff14', cast: ['elijah'], item: 'crystal', lines: [
+    ['Part of the family is free! But deep under the desert,', '#fff'],
+    ['the Grumbots are drilling for uranium', '#fff'],
+    ['to power the Fun-Cancelling Ray.', '#fff'],
+    ['', ''],
+    ['ELIJAH: "Uranium? That\'s MY thing!"', '#f4d03f'],
+    ['', ''],
+    ['Smash the drills, grab the glowing crystals,', '#fff'],
+    ['and get everyone out of the mine!', '#fff'],
+  ] },
+  { title: 'CHAPTER 3: THE PLUSHIE FACTORY', color: '#ff8ad8', cast: ['noah'], item: 'turtle', lines: [
+    ['The Grumbots are stuffing their robots', '#fff'],
+    ['with stolen plushies... even the turtle', '#fff'],
+    ['from the science center!', '#fff'],
+    ['', ''],
+    ['NOAH: "NOBODY takes my plushies!"', '#6fb6ff'],
+    ['', ''],
+    ['Free the plushies and the rest of the family!', '#fff'],
+  ] },
+  { title: 'CHAPTER 4: LIBERTY FORTRESS', color: '#ffd34d', cast: ['andrew'], grump: true, lines: [
+    ['Every firework in America is locked inside', '#fff'],
+    ['MEGA GRUMP\'s fortress. At midnight his ray will', '#fff'],
+    ['cancel the Fourth of July FOREVER!', '#ff8a8a'],
+    ['', ''],
+    ['DAD cracks his knuckles at the gate keypad:', '#fff'],
+    ['$ sudo open fortress', '#39ff14'],
+    ['ACCESS GRANTED.', '#39ff14'],
+    ['Storm the fortress and raise the flag!', '#7dffa0'],
+  ] },
+];
+function drawTurtle(x, y, s = 1) { // the science-center turtle plushie
+  R(x + 2 * s, y + 2 * s, 10 * s, 6 * s, '#3a9a5a'); R(x + 3 * s, y + s, 8 * s, 2 * s, '#4fc070');
+  R(x + 4 * s, y + 3 * s, 2 * s, 2 * s, '#2a7a44'); R(x + 8 * s, y + 3 * s, 2 * s, 2 * s, '#2a7a44');
+  R(x + 12 * s, y + 3 * s, 4 * s, 3 * s, '#8fd6a0'); R(x + 14 * s, y + 3 * s, s, s, '#222');
+  R(x + 2 * s, y + 8 * s, 2 * s, 2 * s, '#8fd6a0'); R(x + 9 * s, y + 8 * s, 2 * s, 2 * s, '#8fd6a0');
+}
+function drawGrumpProp(x, y, sc, withTeddy) { // MEGA GRUMP as a prop for the story screens
+  ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc);
+  drawBoss({ x: 0, y: 0, w: 44, h: 56, facing: -1, flash: 0, anim: 0, state: withTeddy ? 'idle' : 'walk', alive: true, happy: withTeddy });
+  if (withTeddy) { drawTeddy(-6, 20, 1.6); heart(14, -10 - Math.abs(Math.sin(gtime * 3)) * 4, '#ff3b5c', 2); }
+  ctx.restore();
+}
 function drawStory() {
   R(0, 0, VW, VH, '#0b0b18');
-  for (let i = 0; i < 60; i++) R((i * 97) % VW, (i * 61) % VH, 1, 1, '#555');
-  const lines = [
-    ['OH NO!', '#ff3b3b', 14],
-    ['The grumpy GRUMBOTS have kidnapped', '#fff', 6],
-    ['the family, stolen the plushies, and', '#fff', 6],
-    ['taken all of America\'s fireworks!', '#fff', 6],
-    ['', '#fff', 6],
-    ['Only the BOOM BROTHERS can save the day!', '#ffd34d', 6],
-    ['', '#fff', 6],
-    ['NOAH  - plushie bombs that go KA-BEAR!', '#6fb6ff', 6],
-    ['ELIJAH - uranium ray & ATOMIC blasts!', '#f4d03f', 6],
-    ['ANDREW - guitar riffs, drums & BJJ!', '#ff7b54', 6],
-  ];
-  lines.forEach(([s, c, z], i) => { if (stateT > i * 0.25) text(s, VW / 2, 20 + i * 18 + (i ? 10 : 0), { size: z, color: c, align: 'center' }); });
-  ctx.save(); ctx.translate(172, 206); ctx.scale(2, 2); drawHero('noah', 0, 0, 1, titleFx, true, false, false); ctx.restore();
-  ctx.save(); ctx.translate(226, 206); ctx.scale(2, 2); drawHero('elijah', 0, 0, 1, titleFx, true, false, false); ctx.restore();
-  ctx.save(); ctx.translate(280, 206); ctx.scale(2, 2); drawHero('andrew', 0, 0, 1, titleFx, true, false, false); ctx.restore();
+  for (let i = 0; i < 60; i++) R((i * 97) % VW, (i * 61) % VH, 1, 1, Math.sin(gtime * 2 + i) > 0.7 ? '#aaa' : '#555');
+  const ch = STORY[clamp(levelIndex, 0, STORY.length - 1)];
+  text(ch.title, VW / 2, 14, { size: ch.title.length > 24 ? 10 : 13, color: ch.color, align: 'center' });
+  ch.lines.forEach(([s, c], i) => { if (s && stateT > 0.3 + i * 0.3) text(s, VW / 2, 42 + i * 15, { size: 6, color: c, align: 'center' }); });
+  const n = ch.cast.length, x0 = (ch.grump ? 196 : 240) - (n - 1) * 27;
+  ch.cast.forEach((h, i) => { ctx.save(); ctx.translate(x0 + i * 54 - 14, 194); ctx.scale(2, 2); drawHero(h, 0, 0, 1, titleFx, true, false, false); ctx.restore(); });
+  if (ch.item === 'crystal') for (let i = 0; i < 3; i++) drawCrystal(290 + i * 22, 214 - (i % 2) * 8, 1.5);
+  if (ch.item === 'turtle') { drawTurtle(286, 214, 2); drawTeddy(330, 210, 2); }
+  if (ch.grump) drawGrumpProp(330, 178, 1, false);
   if (stateT > 1.5 && Math.floor(stateT * 2) % 2) text('PRESS ENTER / FIRE', VW / 2, 252, { size: 6, color: '#fff', align: 'center' });
 }
 function drawLevelCard() {
@@ -2493,19 +2556,21 @@ function drawVictory() {
   for (const r of rockets) R(r.x - 1, r.y - 2, 2, 4, '#fff');
   ctx.restore(); ctx.globalAlpha = 1;
   drawFlagCloth(VW / 2 - 45, 20, 90, 50, true);
-  text('YOU SAVED AMERICA!', VW / 2, 80, { size: 16, color: '#ffd34d', align: 'center' });
-  text('The family is safe, the plushies are home,', VW / 2, 104, { size: 6, align: 'center' });
-  text('and the fireworks light up the sky!', VW / 2, 114, { size: 6, align: 'center' });
+  text('YOU SAVED THE FOURTH OF JULY!', VW / 2, 76, { size: 12, color: '#ffd34d', align: 'center' });
+  text('MEGA GRUMP\'s ray backfired into the biggest fireworks show ever!', VW / 2, 96, { size: 5, align: 'center' });
+  text('Noah gave him a teddy bear, and he smiled for the very first time.', VW / 2, 106, { size: 5, align: 'center' });
+  text('Turns out he was just lonely. Everyone\'s invited to the cookout!', VW / 2, 116, { size: 5, color: '#7dffa0', align: 'center' });
   R(0, 210, VW, 62, '#2e7d32');
   const heroes = players.length ? players.map(p => ({ hero: p.hero, v: p.v || 0 })) : [{ hero: 'noah', v: 0 }, { hero: 'elijah', v: 0 }];
   const all = [...heroes, ...rescuedAll.map(l => ({ look: l }))];
-  const spacing = Math.min(30, (VW - 40) / all.length), x0 = VW / 2 - (all.length - 1) * spacing / 2;
+  const spacing = Math.min(30, (VW - 120) / all.length), x0 = VW / 2 - 30 - (all.length - 1) * spacing / 2;
   all.forEach((a, i) => {
     const hop = Math.max(0, Math.sin(stateT * 6 + i * 1.3)) * 8;
     const f = Math.sin(stateT * 3 + i) > 0 ? 1 : -1;
     if (a.hero) drawHero(a.hero, x0 + i * spacing - 7, 190 - hop, f, stateT, false, hop > 1, false, a.v);
     else drawPerson(x0 + i * spacing - 6, 192 - hop, f, a.look, stateT, false, hop > 1);
   });
+  drawGrumpProp(VW - 64, 176, 0.62, true);
   text('JESUS LOVES YOU!', VW / 2, 140, { size: 10, color: '#fff3b0', align: 'center' });
   text('GOD BLESS AMERICA!', VW / 2, 158, { size: 10, color: '#e63946', align: 'center', shadowColor: '#fff' });
   text('FINAL SCORE: ' + score, VW / 2, 226, { size: 8, color: '#fff', align: 'center' });
@@ -2783,7 +2848,7 @@ function makeSnap() {
   const s = {
     t: 'snap', st: state, stT: r1(stateT), lv: level ? level.index : -1, seq: NET.levelSeq, pz: paused, cam: r1(camX),
     li: lives, sc: score, sh: r1(shake), fl: r2(flash), fc: flashColor, bn: banner, mu: musicOn ? (musicTempo > 1 ? 2 : 1) : pendingMusic ? (pendingMusic === 'fast' ? 2 : 1) : 0,
-    pt: party.map(q => [q.dev, q.hero]), res: rescuedAll, code: NET.code,
+    pt: party.map(q => [q.dev, q.hero]), res: rescuedAll, code: NET.code, sl: levelIndex,
   };
   let fx = NET.fx; NET.fx = [];
   if (fx.length > 900) { let n = 0; fx = fx.filter(e => e[0] !== 'p' || ++n < 600); } // keep it light
@@ -2822,6 +2887,7 @@ function applySnap(s) {
   NET.camTarget = s.cam; if (first || Math.abs(camX - s.cam) > 200) camX = s.cam;
   if (s.mu !== NET.music) { NET.music = s.mu; if (s.mu) startMusic(s.mu === 2); else stopMusic(); }
   if (s.lv >= 0) levelIndex = s.lv;
+  if (s.sl !== undefined && (state === 'story' || s.lv < 0)) levelIndex = s.sl;
   for (const e of s.fx || []) {
     if (e[0] === 'p') part(...e.slice(1));
     else if (e[0] === 's') { if (SFX_RAW[e[1]]) SFX_RAW[e[1]](...e.slice(2)); }
