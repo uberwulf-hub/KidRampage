@@ -143,6 +143,13 @@ SauceStore finds the release on its own within about 10 minutes.
   content against SauceStore's content policy.
 - `store/icon.png` is drawn from the game's own sprites: `node tools/make-icon.js` redraws it (needs Playwright).
 
+## The look
+
+2.5D: the game plays in 2D, the characters are outlined pixel art, and the world has depth. Blocks show their
+3D tops and sides in perspective, and each level has a weird low-poly 3D background drawn by a tiny built-in 3D
+renderer (no libraries; see `scene3D` in `game.js`): a ringed planet over floating desert mesas and spinning saguaros,
+giant glowing uranium crystals, floating teddy heads and gears, and spinning stars and firework rockets.
+
 ## Music and sound effects
 
 The title screen, levels and boss fight have their own music, and explosions, rockets, pickups and more use

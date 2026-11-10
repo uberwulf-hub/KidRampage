@@ -1974,6 +1974,210 @@ function drawFlagCloth(x, y, w, h, wave) {
   }
 }
 
+// ---- a tiny 3D renderer for the backgrounds: low-poly shapes, flat shading, fog and real perspective.
+// The game itself stays 2D; these scenes sit behind it and shift with true parallax as the camera moves.
+const LIGHT3 = (() => { const v = [-0.45, 0.75, -0.5], l = Math.hypot(...v); return v.map(c => c / l); })();
+const rgbCache = new Map();
+function rgbOf(hex) {
+  let v = rgbCache.get(hex);
+  if (!v) {
+    let h = hex.slice(1); if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    const n = parseInt(h, 16); v = [(n >> 16) & 255, (n >> 8) & 255, n & 255]; rgbCache.set(hex, v);
+  }
+  return v;
+}
+function rot3(p, o) {
+  let [x, y, z] = p;
+  if (o.ry) { const c = Math.cos(o.ry), s = Math.sin(o.ry); [x, z] = [x * c + z * s, -x * s + z * c]; }
+  if (o.rx) { const c = Math.cos(o.rx), s = Math.sin(o.rx); [y, z] = [y * c - z * s, y * s + z * c]; }
+  if (o.rz) { const c = Math.cos(o.rz), s = Math.sin(o.rz); [x, y] = [x * c - y * s, x * s + y * c]; }
+  return [x, y, z];
+}
+const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const norm3 = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+
+// ---- shapes (y is up; faces either carry their own normal "n" or are treated as convex)
+function meshBox(w, h, d, c, cTop) {
+  const x = w / 2, y = h / 2, z = d / 2;
+  const v = [[-x, -y, -z], [x, -y, -z], [x, y, -z], [-x, y, -z], [-x, -y, z], [x, -y, z], [x, y, z], [-x, y, z]];
+  return { v, f: [
+    { i: [0, 1, 2, 3], c, n: [0, 0, -1] }, { i: [5, 4, 7, 6], c, n: [0, 0, 1] }, { i: [4, 0, 3, 7], c, n: [-1, 0, 0] },
+    { i: [1, 5, 6, 2], c, n: [1, 0, 0] }, { i: [3, 2, 6, 7], c: cTop || c, n: [0, 1, 0] }, { i: [4, 5, 1, 0], c, n: [0, -1, 0] }] };
+}
+function meshExtrude(poly, depth, c, cSide) { // a flat 2D outline given thickness (works for concave outlines too)
+  let pts = poly.slice();
+  let area = 0; for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; area += a[0] * b[1] - b[0] * a[1]; }
+  if (area < 0) pts.reverse();
+  const n = pts.length, z = depth / 2, v = [...pts.map(p => [p[0], p[1], -z]), ...pts.map(p => [p[0], p[1], z])];
+  const f = [{ i: [...Array(n).keys()].reverse(), c, n: [0, 0, -1] }, { i: [...Array(n).keys()].map(k => k + n), c, n: [0, 0, 1] }];
+  for (let k = 0; k < n; k++) {
+    const k2 = (k + 1) % n, dx = pts[k2][0] - pts[k][0], dy = pts[k2][1] - pts[k][1];
+    f.push({ i: [k, k2, k2 + n, k + n], c: cSide || c, n: norm3([dy, -dx, 0]) });
+  }
+  return { v, f };
+}
+function meshOcta(r, h, c) {
+  const v = [[0, h, 0], [0, -h, 0], [r, 0, 0], [-r, 0, 0], [0, 0, r], [0, 0, -r]];
+  const f = [[0, 2, 4], [0, 4, 3], [0, 3, 5], [0, 5, 2], [1, 4, 2], [1, 3, 4], [1, 5, 3], [1, 2, 5]].map(i => ({ i, c }));
+  return { v, f };
+}
+function meshSphere(r, c, smooth = true) { // icosphere: 80 faces, or 20 when smooth is false
+  const t = (1 + Math.sqrt(5)) / 2;
+  let v = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map(norm3);
+  let f = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+    [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
+  const mid = new Map(), m = (a, b) => { const k = a < b ? a + '_' + b : b + '_' + a; if (!mid.has(k)) { v.push(norm3([(v[a][0] + v[b][0]) / 2, (v[a][1] + v[b][1]) / 2, (v[a][2] + v[b][2]) / 2])); mid.set(k, v.length - 1); } return mid.get(k); };
+  if (smooth) f = f.flatMap(([a, b, c2]) => { const ab = m(a, b), bc = m(b, c2), ca = m(c2, a); return [[a, ab, ca], [b, bc, ab], [c2, ca, bc], [ab, bc, ca]]; });
+  return { v: v.map(p => p.map(q => q * r)), f: f.map(i => ({ i, c })) };
+}
+function meshCylinder(r, r2, h, sides, c, cTop) { // r2 = 0 makes a cone
+  const v = [], f = [];
+  for (let k = 0; k < sides; k++) { const a = k / sides * Math.PI * 2; v.push([Math.cos(a) * r, -h / 2, Math.sin(a) * r]); }
+  for (let k = 0; k < sides; k++) { const a = k / sides * Math.PI * 2; v.push([Math.cos(a) * r2, h / 2, Math.sin(a) * r2]); }
+  for (let k = 0; k < sides; k++) { const k2 = (k + 1) % sides; f.push({ i: [k, k2, k2 + sides, k + sides], c }); }
+  f.push({ i: [...Array(sides).keys()], c });
+  if (r2 > 0) f.push({ i: [...Array(sides).keys()].map(k => k + sides), c: cTop || c });
+  return { v, f };
+}
+function meshRing(r1, r2, segs, c) { // a flat ring, visible from both sides
+  const v = [], f = [];
+  for (let k = 0; k < segs; k++) { const a = k / segs * Math.PI * 2; v.push([Math.cos(a) * r1, 0, Math.sin(a) * r1], [Math.cos(a) * r2, 0, Math.sin(a) * r2]); }
+  for (let k = 0; k < segs; k++) { const a = k * 2, b = ((k + 1) % segs) * 2; f.push({ i: [a, b, b + 1, a + 1], c, two: true, n: [0, 1, 0] }); }
+  return { v, f };
+}
+const starPoly = (r1, r2, n = 5) => Array.from({ length: n * 2 }, (_, k) => { const a = Math.PI / 2 + k * Math.PI / n, r = k % 2 ? r2 : r1; return [Math.cos(a) * r, Math.sin(a) * r]; });
+const gearPoly = (r1, r2, teeth) => Array.from({ length: teeth * 4 }, (_, k) => { const a = k / (teeth * 4) * Math.PI * 2, r = (k % 4 < 2) ? r2 : r1; return [Math.cos(a) * r, Math.sin(a) * r]; });
+const SAGUARO = [[-6, 0], [6, 0], [6, 30], [20, 30], [20, 64], [12, 64], [12, 40], [6, 40], [6, 90], [-6, 90], [-6, 52], [-14, 52], [-14, 76], [-22, 76], [-22, 44], [-6, 44]];
+let MESH = null;
+function meshes() {
+  if (MESH) return MESH;
+  MESH = {
+    planet: meshSphere(420, '#c9764a'), ring: meshRing(560, 760, 24, '#f2d29b'),
+    mesa: meshExtrude([[-70, 0], [70, 0], [52, 34], [30, 34], [24, 52], [-36, 52], [-48, 34], [-56, 34]], 70, '#c4643c', '#9c4a2a'),
+    saguaro: meshExtrude(SAGUARO, 14, '#3a8a3a', '#2a6a2a'),
+    tumble: meshSphere(14, '#b08850', false),
+    crystal: meshOcta(22, 60, '#39ff14'), rock: meshSphere(30, '#4a3b5a', false),
+    head: meshSphere(44, '#a0662f'), ear: meshSphere(17, '#8b5a2b', false), snout: meshSphere(18, '#e8c39e', false), eye: meshBox(7, 7, 7, '#1a1a1a'),
+    gear: meshExtrude(gearPoly(36, 48, 10), 18, '#9aa5b5', '#6c7787'),
+    gift: meshBox(40, 40, 40, '#ff6b9b', '#ffd34d'), ribbon: meshBox(44, 44, 8, '#ffd34d'),
+    starR: meshExtrude(starPoly(48, 20), 14, '#e63946', '#a5222d'), starW: meshExtrude(starPoly(48, 20), 14, '#ffffff', '#c8c8d8'), starB: meshExtrude(starPoly(48, 20), 14, '#1d5fd8', '#14409a'),
+    rocketBody: meshCylinder(9, 9, 56, 8, '#f4f4f4'), rocketTip: meshCylinder(9, 0, 22, 8, '#e63946'), rocketBand: meshCylinder(9.6, 9.6, 8, 8, '#1d5fd8'),
+  };
+  return MESH;
+}
+
+// cam: { x, y, z, f (focal length), hy (horizon on screen) }; fog: colour things fade toward with distance
+function render3D(objs, cam, fog) {
+  const polys = [], halos = [], fogRGB = rgbOf(fog);
+  for (const o of objs) {
+    const s0 = o.s || 1, pos = [o.x, o.y, o.z];
+    for (const part of o.parts) {
+      const m = part.m, ps = (part.s || 1) * s0, at = part.at || [0, 0, 0];
+      const W = m.v.map(p => { const r = rot3([(p[0] * ps + at[0] * s0), (p[1] * ps + at[1] * s0), (p[2] * ps + at[2] * s0)], o); return [r[0] + pos[0], r[1] + pos[1], r[2] + pos[2]]; });
+      const pc = rot3([at[0] * s0, at[1] * s0, at[2] * s0], o); const center = [pc[0] + pos[0], pc[1] + pos[1], pc[2] + pos[2]];
+      for (const f of m.f) {
+        const P = f.i.map(k => W[k]);
+        let cx = 0, cy = 0, cz = 0;
+        for (const p of P) { cx += p[0]; cy += p[1]; cz += p[2]; if (p[2] - cam.z < 30) { cz = -1e9; break; } }
+        if (cz === -1e9) continue;
+        cx /= P.length; cy /= P.length; cz /= P.length;
+        let n;
+        if (f.n) n = rot3(f.n, o);
+        else { n = norm3(cross3(sub3(P[1], P[0]), sub3(P[2], P[0]))); if (dot3(n, sub3([cx, cy, cz], center)) < 0) n = [-n[0], -n[1], -n[2]]; }
+        const view = [cx - cam.x, cy - cam.y, cz - cam.z];
+        if (!f.two && dot3(n, view) > 0) continue; // facing away
+        const d = dot3(n, LIGHT3);
+        let lit = 0.36 + 0.64 * Math.max(0, f.two ? Math.abs(d) : d);
+        if (part.bright) lit = Math.max(lit, 0.75);
+        const fogT = o.noFog ? 0 : clamp((cz - cam.z - 300) / 1800, 0, 0.8), [r, g, b] = rgbOf(f.c);
+        const col = 'rgb(' + ((r * lit * (1 - fogT) + fogRGB[0] * fogT) | 0) + ',' + ((g * lit * (1 - fogT) + fogRGB[1] * fogT) | 0) + ',' + ((b * lit * (1 - fogT) + fogRGB[2] * fogT) | 0) + ')';
+        polys.push({ d: cz, pts: P.map(p => { const z = p[2] - cam.z; return [VW / 2 + (p[0] - cam.x) * cam.f / z, cam.hy - (p[1] - cam.y) * cam.f / z]; }), col });
+      }
+    }
+    if (o.halo) { const z = o.z - cam.z; if (z > 30) halos.push([VW / 2 + (o.x - cam.x) * cam.f / z, cam.hy - (o.y - cam.y) * cam.f / z, o.halo[0] * cam.f / z, o.halo[1]]); }
+  }
+  polys.sort((a, b) => b.d - a.d);
+  ctx.lineWidth = 0.6; ctx.lineJoin = 'round';
+  for (const p of polys) {
+    ctx.fillStyle = p.col; ctx.strokeStyle = p.col; ctx.beginPath();
+    ctx.moveTo(p.pts[0][0], p.pts[0][1]); for (let k = 1; k < p.pts.length; k++) ctx.lineTo(p.pts[k][0], p.pts[k][1]);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  for (const [x, y, r, c] of halos) glow(x, y, r, c, 0.35);
+}
+function grid3D(cam, y, color, alpha) { // a glowing floor grid that runs off to the horizon
+  ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 0.7;
+  const P = (x, z) => { const zz = z - cam.z; return [VW / 2 + (x - cam.x) * cam.f / zz, cam.hy - (y - cam.y) * cam.f / zz]; };
+  for (let z = 80; z < 2400; z *= 1.18) {
+    ctx.globalAlpha = alpha * clamp(1 - z / 2400, 0, 1);
+    const a = P(cam.x - 4000, z), b = P(cam.x + 4000, z);
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+  }
+  ctx.globalAlpha = alpha * 0.7;
+  for (let x = Math.floor((cam.x - 3000) / 120) * 120; x < cam.x + 3000; x += 120) {
+    const a = P(x, 80), b = P(x, 2400);
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+  }
+  ctx.restore();
+}
+// Objects repeat sideways so the scene never runs out: base x is wrapped around the camera at that depth.
+function placeX(base, z, cam) { const span = VW * (z - cam.z) / cam.f + 400; return cam.x + wrap(base - cam.x, span) - span / 2; }
+
+// ---- the four weird backgrounds
+let SHOW_3D = true;
+function scene3D(theme) {
+  if (!SHOW_3D) return;
+  const M = meshes(), t = gtime;
+  const cam = { x: camX * 0.8, y: 70, z: 0, f: 230, hy: VH * 0.5 };
+  const objs = [];
+  const one = (m, extra) => ({ parts: [{ m, ...(extra || {}) }] });
+  if (theme === 'valley') { // floating desert mesas and spinning saguaros under a giant ringed planet
+    objs.push({ ...one(M.planet), x: cam.x * 0.95 + 1600, y: 1700, z: 4200, ry: t * 0.05, noFog: true });
+    objs.push({ ...one(M.ring), x: cam.x * 0.95 + 1600, y: 1700, z: 4200, rx: 0.35, rz: 0.25, noFog: true });
+    for (let i = 0; i < 9; i++) {
+      const z = 650 + (i * 287) % 1300;
+      objs.push({ ...one(M.mesa), x: placeX(i * 530, z, cam), y: -30 + (i % 3 === 0 ? 120 + Math.sin(t * 0.7 + i) * 25 : 0), z, ry: i % 3 === 0 ? t * 0.2 + i : i * 0.7, s: 1 + (i % 2) * 0.5 });
+    }
+    for (let i = 0; i < 7; i++) {
+      const z = 380 + (i * 173) % 700;
+      objs.push({ ...one(M.saguaro), x: placeX(i * 410 + 200, z, cam), y: 70 + (i * 37) % 90 + Math.sin(t + i * 2) * 12, z, ry: t * 0.6 + i, s: 0.9 });
+    }
+    for (let i = 0; i < 4; i++) { const z = 420 + i * 160; objs.push({ ...one(M.tumble), x: placeX(i * 600 + t * 90, z, cam), y: -18 + Math.abs(Math.sin(t * 3 + i)) * 20, z, rz: -t * 4, rx: t }); }
+    grid3D(cam, -30, '#fff3d8', 0.35);
+    render3D(objs, cam, '#ffd9b0');
+  } else if (theme === 'mine') { // giant glowing uranium crystals turning slowly in the dark
+    for (let i = 0; i < 11; i++) {
+      const z = 360 + (i * 211) % 1500;
+      objs.push({ parts: [{ m: M.crystal, bright: true }, { m: M.crystal, at: [34, -26, 10], s: 0.55, bright: true }, { m: M.crystal, at: [-28, -34, -6], s: 0.45, bright: true }],
+        x: placeX(i * 480, z, cam), y: 10 + (i * 53) % 160 + Math.sin(t * 0.8 + i) * 10, z, ry: t * 0.4 + i, halo: [90, '#39ff14'] });
+    }
+    for (let i = 0; i < 6; i++) { const z = 500 + i * 260; objs.push({ ...one(M.rock), x: placeX(i * 700 + 300, z, cam), y: 150 + (i * 41) % 120, z, ry: t * 0.2 + i, rx: i, s: 1 + (i % 3) * 0.4 }); }
+    grid3D(cam, -30, '#39ff14', 0.22);
+    render3D(objs, cam, '#1d1228');
+  } else if (theme === 'factory') { // giant floating teddy heads, turning gears and gift boxes
+    for (let i = 0; i < 5; i++) {
+      const z = 700 + (i * 331) % 1100;
+      objs.push({ parts: [{ m: M.head }, { m: M.ear, at: [-34, 34, 6] }, { m: M.ear, at: [34, 34, 6] }, { m: M.snout, at: [0, -10, -38] }, { m: M.eye, at: [-15, 10, -40] }, { m: M.eye, at: [15, 10, -40] }],
+        x: placeX(i * 620, z, cam), y: 170 + (i * 47) % 120 + Math.sin(t * 0.9 + i) * 15, z, ry: Math.sin(t * 0.5 + i) * 0.8, rz: Math.sin(t * 0.7 + i) * 0.15 });
+    }
+    for (let i = 0; i < 6; i++) { const z = 500 + (i * 197) % 1000; objs.push({ ...one(M.gear), x: placeX(i * 520 + 260, z, cam), y: 230 + (i * 31) % 100, z, rz: t * (i % 2 ? 0.8 : -0.8), ry: 0.5, s: 0.8 + (i % 3) * 0.3 }); }
+    for (let i = 0; i < 5; i++) { const z = 400 + i * 180; objs.push({ parts: [{ m: M.gift }, { m: M.ribbon }], x: placeX(i * 690 + 120, z, cam), y: 120 + Math.sin(t + i) * 20, z, ry: t * 0.7 + i, rx: 0.4 }); }
+    grid3D(cam, -30, '#ffffff', 0.3);
+    render3D(objs, cam, '#ffd0c8');
+  } else { // fortress: spinning red, white and blue stars and firework rockets drifting up
+    const stars = [M.starR, M.starW, M.starB];
+    for (let i = 0; i < 9; i++) { const z = 450 + (i * 223) % 1300; objs.push({ ...one(stars[i % 3], { bright: i % 3 === 1 }), x: placeX(i * 450, z, cam), y: 200 + (i * 61) % 180 + Math.sin(t + i) * 15, z, ry: t * 1.2 + i, s: 0.9 + (i % 2) * 0.4 }); }
+    for (let i = 0; i < 6; i++) {
+      const z = 600 + i * 200, rise = (t * 30 + i * 90) % 520;
+      objs.push({ parts: [{ m: M.rocketBody }, { m: M.rocketTip, at: [0, 39, 0] }, { m: M.rocketBand, at: [0, -10, 0] }], x: placeX(i * 560 + 280, z, cam), y: -60 + rise, z, ry: t + i, rz: 0.15, halo: [40, '#ffb000'] });
+    }
+    grid3D(cam, -30, '#4a8bff', 0.35);
+    render3D(objs, cam, '#3a1f4a');
+  }
+}
+
 // ---- background
 const wrap = (v, span) => ((v % span) + span) % span;
 function ridgeY(x, off, base, amp, fq) { const w = x + off; return base - Math.sin(w * fq) * amp - Math.sin(w * fq * 2.7 + 1) * amp * 0.4; }
@@ -2008,19 +2212,13 @@ function drawBackground() {
   const th = LEVELS[level ? level.index : 0].theme;
   const ox = camX;
   if (th === 'valley' || state === 'title' || state === 'story' || state === 'lobby' || state === 'online' || state === 'code' || state === 'netwait') {
-    skyGradient([[0, '#3f9fe8'], [0.6, '#9fdcff'], [1, '#d8f4ff']]);
+    skyGradient([[0, '#3a8ee6'], [0.55, '#9fd4ff'], [1, '#ffe2bd']]);
     glow(400, 46, 40, '#fff2a0', 0.5);
     ctx.save(); ctx.globalAlpha = 0.18; ctx.fillStyle = '#fff6c0';
     for (let i = 0; i < 10; i++) { const a = gtime * 0.1 + i * Math.PI / 5; ctx.beginPath(); ctx.moveTo(400, 46); ctx.lineTo(400 + Math.cos(a) * 90, 46 + Math.sin(a) * 90); ctx.lineTo(400 + Math.cos(a + 0.12) * 90, 46 + Math.sin(a + 0.12) * 90); ctx.fill(); }
     ctx.restore();
     circle(400, 46, 19, '#fff6b0'); circle(400, 46, 15, '#ffe066'); circle(396, 42, 5, '#fff8d0');
-    // far mountains with snow caps
-    ridge(ox * 0.06, 158, 44, '#93b8d8', 0.006);
-    for (let x = 0; x <= VW; x += 2) { // snow on the peaks, following their shape
-      const top = ridgeY(x, ox * 0.06, 158, 44, 0.006);
-      if (top < 124) { const d = (124 - top) * 0.8; R(x, top, 2, d, '#eef6ff'); R(x, top + d, 2, 1, '#cfe0f0'); }
-    }
-    ridge(ox * 0.06 + 140, 170, 30, '#7fa6c8', 0.009);
+    scene3D('valley'); // the 3D part: a ringed planet, floating mesas and spinning saguaros
     for (let i = 0; i < 6; i++) { const span = VW + 140; cloud(wrap(i * 137 - ox * 0.1 + gtime * 4, span) - 60, 24 + (i * 37) % 60, 0.8 + (i % 3) * 0.15); }
     // birds
     for (let i = 0; i < 3; i++) {
@@ -2041,13 +2239,8 @@ function drawBackground() {
   }
   if (th === 'mine') {
     skyGradient([[0, '#0d0716'], [1, '#2d1b3d']]);
-    ridge(ox * 0.15, 150, 50, '#1d1328', 0.01);
-    ridge(ox * 0.25, 200, 30, '#251a33', 0.016);
-    for (let i = 0; i < 18; i++) { // glowing crystal clusters
-      const cx = wrap(i * 97 - ox * 0.3, VW + 40) - 20, cy = 70 + (i * 53) % 140, pulse = 0.5 + 0.5 * Math.sin(gtime * 2 + i);
-      glow(cx, cy, 12, '#39ff14', 0.3 + 0.2 * pulse);
-      R(cx - 1, cy - 4, 2, 7, '#7dff5a'); R(cx + 2, cy - 1, 2, 4, '#4fd13a'); R(cx - 3, cy, 2, 3, '#4fd13a'); R(cx - 1, cy - 4, 1, 2, '#e0ffd0');
-    }
+    scene3D('mine'); // giant glowing uranium crystals
+    ridge(ox * 0.25, 210, 24, '#251a33', 0.016);
     for (let i = 0; i < 6; i++) { // timber supports with hanging lanterns
       const bx = wrap(i * 150 - ox * 0.55, VW + 150) - 75;
       R(bx, 34, 7, VH, '#4a3020'); R(bx, 34, 2, VH, '#5f4029'); R(bx + 6, 34, 1, VH, '#2e1d12');
@@ -2062,13 +2255,13 @@ function drawBackground() {
   if (th === 'factory') {
     skyGradient([[0, '#ff8ccf'], [0.6, '#ffc0a8'], [1, '#ffe2b0']]);
     glow(90, 70, 50, '#fff0c0', 0.4); circle(90, 70, 22, '#fff4d8');
+    scene3D('factory'); // giant teddy heads, gears and gift boxes
     for (let i = 0; i < 8; i++) { // far factories with lit windows and smoking chimneys
       const cx = wrap(i * 90 - ox * 0.25, VW + 90) - 45, top = 110 + (i % 3) * 12;
       R(cx, top, 56, VH, '#c77aa8'); R(cx, top, 56, 3, '#d993bb'); R(cx + 54, top, 2, VH, '#a5618a');
       R(cx + 34, top - 46, 10, 46, '#b56a96'); R(cx + 33, top - 48, 12, 3, '#9e5683');
       for (let r = 0; r < 5; r++) for (let c = 0; c < 4; c++) R(cx + 5 + c * 12, top + 10 + r * 16, 6, 8, hash(i * 7 + c, r) > 0.35 ? '#ffe8a0' : '#8e4f78');
       for (let k = 0; k < 3; k++) { const t = (gtime * 0.6 + k / 3 + i * 0.2) % 1; ctx.save(); ctx.globalAlpha = 0.55 * (1 - t); circle(cx + 39 + Math.sin(t * 6 + i) * 4, top - 50 - t * 40, 5 + t * 8, '#fff'); ctx.restore(); }
-      if (i % 3 === 0) { ctx.save(); ctx.globalAlpha = 0.45; drawTeddy(cx + 8, top - 34, 2.4); ctx.restore(); }
     }
     const off = ox * 0.5; // pipes in front
     for (let i = 0; i < 6; i++) { const pxx = wrap(i * 110 - off, VW + 110) - 55; R(pxx, 200, 90, 8, '#9e6b8e'); R(pxx, 200, 90, 2, '#c08ab0'); R(pxx + 40, 196, 10, 16, '#7a4f6e'); circle(pxx + 45, 194, 4, '#d62828'); }
@@ -2079,6 +2272,7 @@ function drawBackground() {
   for (let i = 0; i < 50; i++) { const tw = Math.sin(gtime * 3 + i * 1.7) > 0.6 ? 2 : 1; R((i * 71) % VW, (i * 37) % 120, tw, tw, i % 3 ? '#fff' : '#ffd34d'); }
   circle(70, 50, 14, '#fff6d8'); circle(76, 46, 12, '#1b1f4a'); // crescent moon
   ctx.save(); ctx.globalAlpha = 0.35; drawFlagCloth(wrap(60 - ox * 0.1, 600) - 60, 30, 120, 66, true); ctx.restore();
+  scene3D('fortress'); // spinning red, white and blue stars and firework rockets
   ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.08; ctx.fillStyle = '#fff8d0';
   for (let i = 0; i < 2; i++) {
     const bx = wrap(160 + i * 240 - ox * 0.2, VW + 100) - 50, a = -Math.PI / 2 + Math.sin(gtime * 0.6 + i * 2) * 0.6;
@@ -2097,9 +2291,30 @@ function drawBackground() {
 }
 
 // ---- tiles
+// Blocks have depth: each solid block's exposed top and sides are drawn going back toward a vanishing point in
+// the middle of the screen (one-point perspective), then the pixel-art fronts go on top. They shift as the camera moves.
+const DEPTH3 = 0.07;
+function drawBlockDepth(x0, x1) {
+  const th = level.theme, vpx = camX + VW / 2, vpy = VH * 0.42;
+  const back = (px, py) => [px + (vpx - px) * DEPTH3, py + (vpy - py) * DEPTH3];
+  const quad = (a, b, c, d, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(c[0], c[1]); ctx.lineTo(d[0], d[1]); ctx.closePath(); ctx.fill(); };
+  const base = { [T.DIRT]: th.dirt, [T.BRICK]: th.brick, [T.STEEL]: th.steel, [T.PLAT]: '#a1662f' };
+  for (let ty = 0; ty < level.h; ty++) for (let tx = x0 - 1; tx <= x1 + 1; tx++) {
+    const t = tileAt(tx, ty);
+    if (!base[t] || tx < 0 || tx >= level.w) continue;
+    const X0 = tx * TILE, X1 = X0 + TILE, Y0 = ty * TILE, Y1 = t === T.PLAT ? Y0 + 5 : Y0 + TILE, c = base[t];
+    const up = tileAt(tx, ty - 1), topCol = t === T.DIRT && th.grass ? shade(th.grass, 0.08) : shade(c, 0.14);
+    if (!SOLID[up] && Y0 > vpy) quad([X0, Y0], [X1, Y0], back(X1, Y0), back(X0, Y0), topCol);
+    if (t === T.PLAT) continue;
+    if (!SOLID[tileAt(tx, ty + 1)] && Y1 < vpy) quad([X0, Y1], [X1, Y1], back(X1, Y1), back(X0, Y1), shade(c, -0.45));
+    if (!SOLID[tileAt(tx - 1, ty)] && X0 > vpx) quad([X0, Y0], [X0, Y1], back(X0, Y1), back(X0, Y0), shade(c, -0.28));
+    if (!SOLID[tileAt(tx + 1, ty)] && X1 < vpx) quad([X1, Y0], [X1, Y1], back(X1, Y1), back(X1, Y0), shade(c, -0.28));
+  }
+}
 function drawTiles() {
   const th = level.theme;
   const x0 = Math.max(0, Math.floor(camX / TILE)), x1 = Math.min(level.w - 1, Math.floor((camX + VW) / TILE));
+  drawBlockDepth(x0, x1);
   const dirtL = shade(th.dirt, 0.12), dirtD = shade(th.dirt, -0.3), stone = shade(th.dirt, 0.28), stoneD = shade(th.dirt, -0.1);
   const brickL = shade(th.brick, 0.25), brickD = shade(th.brick, -0.25);
   for (let ty = 0; ty < level.h; ty++) for (let tx = x0; tx <= x1; tx++) {
@@ -3105,6 +3320,8 @@ requestAnimationFrame(frame);
 window.BOOM = {
   get state() { return state; }, get players() { return players; }, get enemies() { return enemies; }, get boss() { return boss; },
   get level() { return level; }, get net() { return NET; },
+  set show3D(v) { SHOW_3D = !!v; },
+  timeRender(n = 60) { const t0 = performance.now(); for (let i = 0; i < n; i++) render(); return +((performance.now() - t0) / n).toFixed(2); },
   get audio() {
     const files = Object.values(sfxPools).flat(2);
     return { music: musicSlot, musicPlaying: !!(musicEl && !musicEl.paused), musicTime: musicEl ? +musicEl.currentTime.toFixed(1) : 0,
