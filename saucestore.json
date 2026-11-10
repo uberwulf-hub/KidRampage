@@ -1,16 +1,17 @@
 {
   "name": "Boom Brothers: Atomic Liberty",
   "category": "Game",
-  "description": "A run-and-gun, blow-everything-up side scroller starring Noah and Elijah. Run right, smash the grumpy Grumbot robots, blast through walls and set off chain reactions of uranium barrels and firework crates. Noah throws plushie bear bombs that go KA-BEAR; Elijah fires a uranium ray and sets off ATOMIC blasts. Rescue the family from cages, touch the cross checkpoints (Jesus loves you!), and raise the flag at the end of every level for a silly ending, then take on the giant MEGA GRUMP 9000. Up to 4 players on one computer (keyboard and gamepads), or play online with a 4-letter room code. Kid-friendly: robots pop into gears, no blood, and game over just restarts the level.",
+  "description": "A run-and-gun, blow-everything-up side scroller starring Noah and Elijah, with special guest Andrew. Run right, smash the grumpy Grumbot robots, blast through walls and set off chain reactions of uranium barrels and firework crates. Noah throws plushie bear bombs that go KA-BEAR; Elijah fires a uranium ray and sets off ATOMIC blasts; Andrew rocks out with guitar power chords, BJJ takedowns, drum solos and sysadmin zaps. Every level, everyone's moves power up into something new. Rescue the family from cages, touch the cross checkpoints (Jesus loves you!), and raise the flag at the end of every level for a silly ending, then take on the giant MEGA GRUMP 9000. Up to 4 players on one computer (keyboard and gamepads), or play online with a 4-letter room code. Kid-friendly: robots pop into gears, no blood, and game over just restarts the level.",
   "icon": "store/icon.png",
   "assets": {
-    "windows": "BoomBrothers-windows.zip"
+    "windows": "BoomBrothers-windows.zip",
+    "android": "BoomBrothers-android.apk"
   },
   "requirements": [
-    "Windows 10 or 11",
-    "Microsoft Edge (comes with Windows) or another up-to-date web browser",
-    "About 5 MB of disk space",
-    "Keyboard; Xbox-style game controllers for players 3 and 4",
+    "Windows 10 or 11, or Android 7 or later (phones and tablets, with touch buttons)",
+    "Microsoft Edge (comes with Windows) or another up-to-date web browser on PC",
+    "About 5 MB of space",
+    "Keyboard and Xbox-style game controllers on PC; touch screen on Android",
     "Internet for online games (home-network games need Node.js on one PC)"
   ],
   "rightsConfirmed": true,

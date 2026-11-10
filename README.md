@@ -27,6 +27,18 @@ Press jump again in the air for a **double jump**.
 
 P / Esc pauses, M mutes.
 
+## Android (phones and tablets)
+
+Each release also has `BoomBrothers-android.apk`. It's the same game in a full-screen landscape app, with big
+on-screen touch buttons (they appear as soon as you touch the screen). Get it from SauceStore on the phone, or
+open the release page on the phone, download the .apk and open it (allow "install unknown apps" when Android asks).
+The back button pauses the game or goes back in the menus. Online play works with a room code.
+
+The app lives in `android/` (a WebView that loads the same `index.html` and `game.js`), and
+`.github/workflows/android.yml` builds and signs it. To keep the signing key safe for good, add the
+`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_ALIAS` and `ANDROID_KEYSTORE_PASSWORD` secrets (the same setup as
+Race Track Mayhem); otherwise a key is made on the first release build and kept in the Actions cache.
+
 ## Playing online (each player on their own screen)
 
 Online play works the same way as Race Track Mayhem's online races. One screen **hosts**: it runs the real game
@@ -95,7 +107,8 @@ Pick a hero with left/right on the join screen; playing alone, press **R** to sw
 | `.github/workflows/relay.yml` | One-click deploy of the internet game server (Actions > Relay server). |
 | `launcher/` | `BoomBrothers.exe`, a tiny Windows program that opens the game in its own window (for SauceStore). |
 | `saucestore.json`, `store/`, `release-notes/` | The SauceStore listing, its icon, and each version's notes. |
-| `.github/workflows/release.yml` | Builds `BoomBrothers-windows.zip` and publishes a release when you push a version tag. |
+| `.github/workflows/release.yml` | Builds `BoomBrothers-windows.zip` and the Android `.apk` and publishes a release. |
+| `android/`, `.github/workflows/android.yml` | The Android app (a full-screen WebView) and its build. |
 
 ## Publishing to SauceStore
 
