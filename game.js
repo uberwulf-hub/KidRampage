@@ -51,11 +51,13 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+// Mouse buttons work like keys: left click fires, right click throws the special.
+addEventListener('mouseup', e => { keys['Mouse' + e.button] = false; });
 
 const BINDS = {
   solo: { left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], up: ['KeyW', 'ArrowUp', 'Space'], down: ['KeyS', 'ArrowDown'],
-          fire: ['KeyQ', 'KeyF', 'KeyJ', 'KeyZ'], special: ['KeyE', 'KeyG', 'KeyK', 'KeyX'], swap: ['KeyR', 'KeyC'] },
-  p1:   { left: ['KeyA'], right: ['KeyD'], up: ['KeyW'], down: ['KeyS'], fire: ['KeyQ', 'KeyF'], special: ['KeyE', 'KeyG'], swap: [] },
+          fire: ['KeyQ', 'KeyF', 'KeyJ', 'KeyZ', 'Mouse0'], special: ['KeyE', 'KeyG', 'KeyK', 'KeyX', 'Mouse2'], swap: ['KeyR', 'KeyC'] },
+  p1:   { left: ['KeyA'], right: ['KeyD'], up: ['KeyW'], down: ['KeyS'], fire: ['KeyQ', 'KeyF', 'Mouse0'], special: ['KeyE', 'KeyG', 'Mouse2'], swap: [] },
   p2:   { left: ['ArrowLeft'], right: ['ArrowRight'], up: ['ArrowUp'], down: ['ArrowDown'], fire: ['KeyK', 'Numpad1'], special: ['KeyL', 'Numpad2'], swap: [] },
 };
 const ACTIONS = ['left', 'right', 'up', 'down', 'fire', 'special', 'swap'];
@@ -90,6 +92,9 @@ function toLogical(t) {
   const r = canvas.getBoundingClientRect();
   return { x: (t.clientX - r.left) / r.width * VW, y: (t.clientY - r.top) / r.height * VH };
 }
+const PAUSE_BTN = { x: VW / 2 + 64, y: 13, r: 9 };
+let pauseTap = false;
+const onPauseButton = p => NET.role !== 'client' && Math.hypot(p.x - PAUSE_BTN.x, p.y - PAUSE_BTN.y) < PAUSE_BTN.r + 6;
 const onButton = p => TBTN.some(b => Math.hypot(p.x - b.x, p.y - b.y) < b.r + 8);
 function handleTouches(e) {
   e.preventDefault();
@@ -123,12 +128,21 @@ function handleTouches(e) {
 }
 canvas.addEventListener('touchstart', e => {
   handleTouches(e);
-  if (state !== 'play' || paused) touchTap = toLogical(e.changedTouches[0]);
+  const t0 = toLogical(e.changedTouches[0]);
+  if (state !== 'play' || paused) touchTap = t0;
+  else if (onPauseButton(t0)) pauseTap = true;
 }, { passive: false });
 canvas.addEventListener('touchmove', handleTouches, { passive: false });
 canvas.addEventListener('touchend', handleTouches, { passive: false });
 canvas.addEventListener('touchcancel', handleTouches, { passive: false });
-canvas.addEventListener('mousedown', e => { initAudio(); if (state !== 'play') touchTap = toLogical(e); });
+canvas.addEventListener('mousedown', e => {
+  initAudio();
+  const at = toLogical(e);
+  if (state !== 'play' || paused) { if (e.button === 0) touchTap = at; return; }
+  if (onPauseButton(at)) { pauseTap = true; return; }
+  keys['Mouse' + e.button] = true; latched.add('Mouse' + e.button); e.preventDefault();
+});
+canvas.addEventListener('contextmenu', e => e.preventDefault()); // right click is the special, not a menu
 
 // Up to 4 players. Each one is driven by a "device": the left half of the keyboard,
 // the right half of the keyboard, a gamepad, or the touch screen.
@@ -189,6 +203,16 @@ function menuInput() {
 }
 
 // ---------------------------------------------------------------- audio
+// ---- settings from the pause menu, remembered on this device
+const SETTINGS = { music: 8, sfx: 8, bg3d: true };
+try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem('boombros_settings') || '{}')); } catch (e) { /* storage blocked */ }
+function saveSettings() { try { localStorage.setItem('boombros_settings', JSON.stringify(SETTINGS)); } catch (e) { /* storage blocked */ } }
+const musicVol = () => (muted ? 0 : clamp((AUDIO.music || {}).volume ?? 0.45, 0, 1) * SETTINGS.music / 10);
+function applyVolumes() {
+  if (sfxGain) sfxGain.gain.value = 0.8 * SETTINGS.sfx / 10;
+  if (musicGain) musicGain.gain.value = 0.5 * SETTINGS.music / 10;
+  if (musicEl) musicEl.volume = musicVol();
+}
 let actx = null, master = null, sfxGain = null, musicGain = null, noiseBuf = null, muted = false;
 function initAudio() {
   if (musicEl && musicEl.paused) musicEl.play().catch(() => {});
@@ -197,6 +221,7 @@ function initAudio() {
   master = actx.createGain(); master.gain.value = 0.6; master.connect(actx.destination);
   sfxGain = actx.createGain(); sfxGain.gain.value = 0.8; sfxGain.connect(master);
   musicGain = actx.createGain(); musicGain.gain.value = 0.5; musicGain.connect(master);
+  applyVolumes();
   const len = actx.sampleRate * 2;
   noiseBuf = actx.createBuffer(1, len, actx.sampleRate);
   const d = noiseBuf.getChannelData(0);
@@ -295,7 +320,7 @@ function playSfxFile(name) {
   const pool = pick(pools), a = pool.find(x => x.paused || x.ended) || pool[0];
   if (a.broken) return false;
   sfxLast[name] = now;
-  try { a.currentTime = 0; a.volume = clamp(AUDIO.sfx[name].vol ?? 0.7, 0, 1); const pr = a.play(); if (pr) pr.catch(() => {}); } catch (e) { return false; }
+  try { a.currentTime = 0; a.volume = clamp(AUDIO.sfx[name].vol ?? 0.7, 0, 1) * SETTINGS.sfx / 10; const pr = a.play(); if (pr) pr.catch(() => {}); } catch (e) { return false; }
   return true;
 }
 let musicEl = null, musicSlot = '';
@@ -312,7 +337,7 @@ function playMusicFile(slot) {
   if (musicEl && musicSlot === slot && !musicEl.broken) { if (musicEl.paused) musicEl.play().catch(() => {}); return true; }
   stopMusicFile();
   const el = new Audio('audio/music/' + file);
-  el.loop = true; el.volume = muted ? 0 : clamp(m.volume ?? 0.45, 0, 1);
+  el.loop = true; el.volume = musicVol();
   el.addEventListener('error', () => { el.broken = true; if (musicEl === el) { musicEl = null; musicSlot = ''; startSynthMusic(slot === 'boss'); } });
   el.play().catch(() => {}); // browsers wait for the first key press or tap; initAudio retries
   musicEl = el; musicSlot = slot;
@@ -355,7 +380,7 @@ function schedMusic() {
     nextNoteT += e8; musicStep++;
   }
 }
-function toggleMute() { muted = !muted; if (master) master.gain.value = muted ? 0 : 0.6; if (musicEl) musicEl.volume = muted ? 0 : clamp((AUDIO.music || {}).volume ?? 0.45, 0, 1); banner = { str: muted ? 'SOUND OFF' : 'SOUND ON', t: 1, color: '#fff' }; }
+function toggleMute() { muted = !muted; if (master) master.gain.value = muted ? 0 : 0.6; if (musicEl) musicEl.volume = musicVol(); banner = { str: muted ? 'SOUND OFF' : 'SOUND ON', t: 1, color: '#fff' }; }
 
 // ---------------------------------------------------------------- tiles
 const T = { EMPTY: 0, DIRT: 1, BRICK: 2, STEEL: 3, PLAT: 4, URAN: 5, FIRE: 6 };
@@ -1863,8 +1888,12 @@ function updateState(dt) {
       if ((m.confirm && stateT > 0.5) || stateT > 3.5) { state = 'play'; stateT = 0; startMusic(false); }
       break;
     case 'play':
-      if (m.pause) paused = !paused;
-      if (paused) { if (m.tap) paused = false; break; }
+      if (m.pause || pauseTap) {
+        pauseTap = false;
+        if (!paused) openPause(); else if (pauseView === 'controls') pauseView = 'menu'; else paused = false;
+        break;
+      }
+      if (paused) { updatePause(m); break; }
       updateWorld(dt);
       break;
     case 'cutscene': updateCutscene(dt, m); break;
@@ -1877,6 +1906,61 @@ function updateState(dt) {
         if (NET.role === 'host') { state = 'lobby'; stateT = 0; lobbyPrev = { esc: true }; } else { state = 'title'; stateT = 0; }
       }
       break;
+  }
+}
+
+// ---- the pause menu
+let pauseIdx = 0, pauseView = 'menu', pauseConfirm = -1;
+const PAUSE_Y = 66, PAUSE_STEP = 17;
+function pauseItems() {
+  const sure = id => pauseConfirm >= 0 && pauseItems.ids[pauseConfirm] === id;
+  const items = [
+    { id: 'resume', label: 'RESUME' },
+    { id: 'restart', label: sure('restart') ? 'RESTART? PRESS AGAIN' : 'RESTART LEVEL' },
+    { id: 'music', label: 'MUSIC', vol: true },
+    { id: 'sfx', label: 'SOUND EFFECTS', vol: true },
+    { id: 'bg3d', label: '3D BACKGROUNDS: ' + (SHOW_3D ? 'ON' : 'OFF') },
+    { id: 'controls', label: 'CONTROLS' },
+    { id: 'quit', label: sure('quit') ? 'QUIT? PRESS AGAIN' : NET.role === 'host' ? 'END ONLINE GAME' : 'QUIT TO TITLE' },
+  ];
+  pauseItems.ids = items.map(i => i.id);
+  return items;
+}
+pauseItems.ids = [];
+function openPause() { paused = true; pauseIdx = 0; pauseView = 'menu'; pauseConfirm = -1; SFX.hit(); }
+function updatePause(m) {
+  if (pauseView === 'controls') { if (m.confirm) { pauseView = 'menu'; SFX.hit(); } return; }
+  const items = pauseItems(), n = items.length;
+  if (m.up) { pauseIdx = (pauseIdx + n - 1) % n; pauseConfirm = -1; SFX.hit(); }
+  if (m.down) { pauseIdx = (pauseIdx + 1) % n; pauseConfirm = -1; SFX.hit(); }
+  let act = m.confirm && !m.tap, dir = m.left ? -1 : m.right ? 1 : 0;
+  if (m.tap) { // a finger or a mouse click
+    const i = Math.round((m.tap.y - PAUSE_Y - 3) / PAUSE_STEP);
+    if (i < 0 || i >= n || Math.abs(m.tap.x - VW / 2) > 120) return;
+    if (i !== pauseIdx) pauseConfirm = -1;
+    pauseIdx = i;
+    if (items[i].vol) dir = m.tap.x < VW / 2 + 55 ? -1 : 1; else act = true;
+  }
+  const it = items[pauseIdx];
+  if (it.vol) {
+    if (!dir && !act) return;
+    const v = SETTINGS[it.id];
+    SETTINGS[it.id] = dir ? clamp(v + dir, 0, 10) : (v >= 10 ? 0 : v + 1);
+    applyVolumes(); saveSettings();
+    if (it.id === 'sfx') SFX.pickup(); else SFX.note();
+    return;
+  }
+  if (!act) return;
+  if ((it.id === 'restart' || it.id === 'quit') && pauseConfirm !== pauseIdx) { pauseConfirm = pauseIdx; SFX.hit(); return; } // ask twice
+  pauseConfirm = -1;
+  if (it.id === 'resume') paused = false;
+  else if (it.id === 'restart') { paused = false; restartLevel(); }
+  else if (it.id === 'bg3d') { SHOW_3D = !SHOW_3D; SETTINGS.bg3d = SHOW_3D; saveSettings(); SFX.hit(); }
+  else if (it.id === 'controls') { pauseView = 'controls'; SFX.hit(); }
+  else if (it.id === 'quit') {
+    paused = false; stopMusic();
+    if (NET.role === 'host') netClose();
+    state = 'title'; stateT = 0; menuIdx = 0;
   }
 }
 
@@ -2565,7 +2649,7 @@ function grid3D(cam, y, color, alpha) { // a glowing floor grid that runs off to
 function placeX(base, z, cam) { const span = VW * (z - cam.z) / cam.f + 400; return cam.x + wrap(base - cam.x, span) - span / 2; }
 
 // ---- the four weird backgrounds
-let SHOW_3D = true;
+let SHOW_3D = SETTINGS.bg3d !== false;
 function scene3D(theme) {
   if (!SHOW_3D) return;
   const M = meshes(), t = gtime;
@@ -3127,6 +3211,56 @@ function drawBanner() {
   if (banner.sub) text(banner.sub, VW / 2, 90, { size: 6, color: '#fff', align: 'center' });
   ctx.globalAlpha = 1;
 }
+function drawPauseButton() {
+  const b = PAUSE_BTN;
+  ctx.globalAlpha = 0.35; circle(b.x, b.y, b.r, '#000'); ctx.globalAlpha = 0.85;
+  R(b.x - 4, b.y - 4, 3, 8, '#fff'); R(b.x + 1, b.y - 4, 3, 8, '#fff');
+  ctx.globalAlpha = 1;
+}
+const CONTROLS_HELP = [
+  ['ONE PLAYER', '#ffd34d'],
+  ['Move: A / D or arrows    Jump: W, up arrow or space'],
+  ['Fire: Q or LEFT CLICK    Bomb: E or RIGHT CLICK'],
+  ['Swap hero: R    Drop through a ledge: S or down'],
+  ['TWO ON ONE KEYBOARD', '#ffd34d'],
+  ['P1: W A S D, Q fire, E bomb (the mouse works too)'],
+  ['P2: arrows, K fire, L bomb'],
+  ['GAMEPAD', '#ffd34d'],
+  ['Stick move, A jump, X or triggers fire, B or Y bomb, START pause'],
+  ['TOUCH SCREEN', '#ffd34d'],
+  ['Left thumb joystick: push up to jump (hold for the double jump)'],
+  ['Right thumb: FIRE and BOMB buttons'],
+  ['ANYWHERE', '#ffd34d'],
+  ['Jump again in the air to double jump. Hold jump on a wall to climb.'],
+  ['P or ESC pause, M sound on/off'],
+];
+function drawPause() {
+  ctx.globalAlpha = 0.72; R(0, 0, VW, VH, '#000'); ctx.globalAlpha = 1;
+  if (NET.role === 'client') {
+    text('PAUSED', VW / 2, 104, { size: 16, align: 'center' });
+    text('The host paused the game', VW / 2, 132, { size: 6, align: 'center' });
+    return;
+  }
+  if (pauseView === 'controls') {
+    text('CONTROLS', VW / 2, 12, { size: 10, align: 'center', color: '#ffd34d' });
+    let y = 32;
+    for (const [line, color] of CONTROLS_HELP) { if (color && y > 32) y += 4; text(line, VW / 2, y, { size: color ? 6 : 5, color: color || '#fff', align: 'center' }); y += color ? 11 : 10; }
+    text('PRESS ENTER / FIRE OR TAP TO GO BACK', VW / 2, VH - 12, { size: 4, color: '#aaa', align: 'center' });
+    return;
+  }
+  text('PAUSED', VW / 2, 30, { size: 16, align: 'center' });
+  pauseItems().forEach((it, i) => {
+    const y = PAUSE_Y + i * PAUSE_STEP, sel = i === pauseIdx, col = sel ? '#ffd34d' : '#fff';
+    if (sel) { ctx.globalAlpha = 0.22; R(VW / 2 - 120, y - 4, 240, 15, '#ffd34d'); ctx.globalAlpha = 1; }
+    if (!it.vol) { text(it.label, VW / 2, y, { size: 6, color: col, align: 'center' }); return; }
+    text(it.label, VW / 2 - 110, y, { size: 6, color: col });
+    const v = SETTINGS[it.id], bx = VW / 2 + 22;
+    text('<', bx - 8, y, { size: 6, color: col }); text('>', bx + 78, y, { size: 6, color: col });
+    for (let k = 0; k < 10; k++) R(bx + 2 + k * 7, y + 6 - Math.round(k * 0.6), 5, 2 + Math.round(k * 0.6), k < v ? col : '#555');
+    text(v ? String(v) : 'OFF', bx + 98, y, { size: 5, color: col });
+  });
+  text('UP / DOWN + ENTER, LEFT / RIGHT FOR VOLUME, OR TAP.   P / ESC TO RESUME', VW / 2, VH - 14, { size: 4, color: '#aaa', align: 'center' });
+}
 function drawTouch() {
   if (!touch.used || state !== 'play') return;
   // the joystick: where the thumb is, or a faint hint of where to put it
@@ -3379,11 +3513,8 @@ function renderInner() {
   drawTouch();
   if (state === 'intro') drawLevelCard();
   if (state === 'cutscene' && cut.summary) drawSummary();
-  if (state === 'play' && paused) {
-    ctx.globalAlpha = 0.6; R(0, 0, VW, VH, '#000'); ctx.globalAlpha = 1;
-    text('PAUSED', VW / 2, 110, { size: 16, align: 'center' });
-    text('P / ESC to keep smashing', VW / 2, 136, { size: 6, align: 'center' });
-  }
+  if (state === 'play' && !paused && NET.role !== 'client') drawPauseButton();
+  if (state === 'play' && paused) drawPause();
   if (state === 'gameover') {
     ctx.globalAlpha = 0.65; R(0, 0, VW, VH, '#000'); ctx.globalAlpha = 1;
     text('OH NO!', VW / 2, 90, { size: 18, color: '#ff3b3b', align: 'center' });
