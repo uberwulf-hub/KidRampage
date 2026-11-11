@@ -11,7 +11,7 @@ Choose **PLAY!**, then everyone joins on the **"Who is playing?"** screen (up to
 
 | Player device | Join | Move | Jump (hold on a wall to **climb**) | Fire | Bomb |
 |---|---|---|---|---|---|
-| Keyboard, left side | Q | A / D | W | Q | E |
+| Keyboard, left side | Q | A / D | W | Q or **left click** | E or **right click** |
 | Keyboard, right side | K | ← / → | ↑ | K | L |
 | Gamepad (any number) | A or X | stick / d-pad | A | X / triggers | B / Y |
 | Touch screen | tap | joystick (left thumb) | push the joystick up | FIRE button | BOMB button |
@@ -22,10 +22,12 @@ If the same hero is picked twice, each copy gets a different outfit color.
 All players share one pool of lives, and more players means more starting lives.
 
 Playing alone? Just press ENTER twice. A solo player can use any keys (arrows or WASD, Z/X, Space)
-and press **R** to swap heroes mid-level. Q fires and E throws a bomb (the old Z/X and F/G keys still work).
+and press **R** to swap heroes mid-level. Q or left click fires, E or right click throws a bomb (the old Z/X and F/G keys still work).
 Press jump again in the air for a **double jump**.
 
-P / Esc pauses, M mutes.
+P / Esc (or the pause button at the top of the screen, or START on a gamepad) opens the **pause menu**: resume,
+restart the level, music and sound effects volume, 3D backgrounds on/off (turn them off if an older tablet
+stutters), a controls page, and quit to the title. The volume and 3D settings are remembered. M mutes everything.
 
 ## Android (phones and tablets)
 
