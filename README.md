@@ -14,15 +14,15 @@ Choose **PLAY!**, then everyone joins on the **"Who is playing?"** screen (up to
 | Keyboard, left side | Q | A / D | W | Q | E |
 | Keyboard, right side | K | ← / → | ↑ | K | L |
 | Gamepad (any number) | A or X | stick / d-pad | A | X / triggers | B / Y |
-| Touch screen | tap | on-screen buttons | | | |
+| Touch screen | tap | joystick (left thumb) | push the joystick up | FIRE button | BOMB button |
 
-On the join screen, press left/right to pick Noah or Elijah, press bomb to leave, and press ENTER or START to go.
+On the join screen, press left/right to pick a hero (seven to choose from), press bomb to leave, and press ENTER or START to go.
 The keyboard fits two players, so players 3 and 4 need gamepads.
-If the same brother is picked twice, each copy gets a different outfit color.
+If the same hero is picked twice, each copy gets a different outfit color.
 All players share one pool of lives, and more players means more starting lives.
 
 Playing alone? Just press ENTER twice. A solo player can use any keys (arrows or WASD, Z/X, Space)
-and press **R** to swap between brothers mid-level. Q fires and E throws a bomb (the old Z/X and F/G keys still work).
+and press **R** to swap heroes mid-level. Q fires and E throws a bomb (the old Z/X and F/G keys still work).
 Press jump again in the air for a **double jump**.
 
 P / Esc pauses, M mutes.
@@ -30,7 +30,16 @@ P / Esc pauses, M mutes.
 ## Android (phones and tablets)
 
 Each release also has `BoomBrothers-android.apk`. It's the same game in a full-screen landscape app, with big
-on-screen touch buttons (they appear as soon as you touch the screen). Get it from SauceStore on the phone, or
+touch controls (they appear as soon as you touch the screen):
+
+- **Left thumb: a floating joystick.** Put your thumb down anywhere on the left half and slide. Left and right run.
+  Push **up to jump**. Keep holding up and the **double jump** happens by itself at the top of the jump, or let the
+  stick come back down and flick up again to time the second jump yourself. Pull down to drop through a ledge.
+  Push into a wall and hold up to climb it.
+- **Right thumb: FIRE** (the big button), **BOMB** just left of it, and **SWAP** up in the corner when playing alone.
+
+Jumping is on the left thumb, so you can run, jump and shoot at the same time.
+ Get it from SauceStore on the phone, or
 open the release page on the phone, download the .apk and open it (allow "install unknown apps" when Android asks).
 The back button pauses the game or goes back in the menus. Online play works with a room code.
 
@@ -91,6 +100,18 @@ has turned into something new. The level card shows everyone's new moves, and th
 | 2 | Twin rockets / Teddy triplets (splits into 3) | Piercing ray / Atomic blast | Big riff / **Drum solo**: shockwave rings |
 | 3 | Homing rockets / Rolling mega teddy | Double ray / Chain reaction | Triple chord / **sudo kill -9 bots**: zaps every robot on screen |
 | 4 | Homing firework rockets / Teddy airstrike | Gamma beam (3-way) / Atomic sun | Shred solo (a stream of notes) / **Rock concert**: amps drop from the sky, drums and zaps |
+
+The family heroes:
+
+| Level | **AJ** (fancy, smooth talker) | **Allison** (crochet) | **Grandpa** (his old guitar) | **Grandma** (love, helping everybody) |
+|---|---|---|---|---|
+| 1 | Gold card / **Smooth talk**: robots in front of him lie down for a nap | Crochet hook (lobbed) / **Amigurumi bomb**: a crocheted plushie that pops into yarn | Guitar swing (a big whack) / **Guitar slam**: jumps and smashes the ground | Love heart / **Fresh cookies**: heals everyone a heart |
+| 2 | Card fan (3) / **Latte bomb**: bursts into sleepy foam | Hook + knitting needle / **Plushie parade**: 3 plushies hop off at the robots | Swing + string zing / **Hoedown stomp**: slam plus ground shockwaves both ways | Heart trio / **Big hug**: heals, shields and a wave of love |
+| 3 | Platinum cards (go through) / **Lullaby**: every robot on screen falls asleep | Needle volley / **Mega yarn ball**: rolls along tangling robots up | Triple twang / **Guitar boomerang**: flies out and comes back | Homing hugs / **Care packages**: gifts fall from the sky and everyone gets +1 bomb |
+| 4 | Homing diamond cards / **Golden limo**: lullaby, then a limo drives through | Hook storm / **Amigurumi army**: bunny, frog, octopus, bee, whale and dino rain down | Thunder strum / **Grand ole boom**: a giant guitar falls from the sky | Heart storm / **Grandma's love**: every robot on screen becomes a puppy, team healed |
+
+Sleeping robots (AJ's naps, Allison's yarn tangles) can't shoot and take extra damage. Robots that Grandma's love
+finishes off turn into puppies and float away on heart balloons. Hearts, guitars and sound go around robot shields.
 
 Andrew runs a little faster than the brothers, and his sound waves go around robot shields.
 Pick a hero with left/right on the join screen; playing alone, press **R** to switch hero mid-level.
