@@ -74,25 +74,52 @@ function padState(p) {
 }
 
 // touch controls (shown automatically on phones / tablets)
+// Left side: a floating joystick. Put your thumb down anywhere on the left half and slide:
+// left/right runs, pushing UP jumps (keep holding up for the double jump at the top of the
+// jump, or let go and flick up again to time it yourself), pushing DOWN drops through ledges.
+// Right side: big FIRE button, BOMB above it, SWAP (one player) in the corner.
 const touch = { used: false, left: false, right: false, up: false, down: false, fire: false, special: false, swap: false };
 let touchTap = null;
+const STICK_R = 24; // how far the thumb moves for a full push (logical pixels)
+const stick = { id: null, ox: 0, oy: 0, dx: 0, dy: 0, homeX: 62, homeY: 214 };
 const TBTN = [
-  { k: 'left', x: 36, y: 232, r: 24 }, { k: 'right', x: 92, y: 232, r: 24 },
-  { k: 'up', x: 446, y: 228, r: 25 }, { k: 'fire', x: 392, y: 240, r: 22 },
-  { k: 'special', x: 400, y: 188, r: 17 }, { k: 'swap', x: 452, y: 176, r: 13 },
+  { k: 'fire', x: 430, y: 226, r: 30 }, { k: 'special', x: 372, y: 238, r: 20 },
+  { k: 'swap', x: 452, y: 168, r: 13 },
 ];
 function toLogical(t) {
   const r = canvas.getBoundingClientRect();
   return { x: (t.clientX - r.left) / r.width * VW, y: (t.clientY - r.top) / r.height * VH };
 }
+const onButton = p => TBTN.some(b => Math.hypot(p.x - b.x, p.y - b.y) < b.r + 8);
 function handleTouches(e) {
   e.preventDefault();
   touch.used = true; initAudio();
+  if (e.type === 'touchstart') for (const t of e.changedTouches) { // a new thumb on the left half becomes the joystick
+    const p = toLogical(t);
+    if (stick.id === null && p.x < VW * 0.5 && !onButton(p)) Object.assign(stick, { id: t.identifier, ox: p.x, oy: p.y, dx: 0, dy: 0 });
+  }
   for (const b of TBTN) touch[b.k] = false;
+  let held = false;
   for (const t of e.touches) {
     const p = toLogical(t);
+    if (t.identifier === stick.id) {
+      held = true;
+      let dx = p.x - stick.ox, dy = p.y - stick.oy;
+      const d = Math.hypot(dx, dy);
+      if (d > STICK_R) { // the stick's center follows the thumb, so a flick back down and up again always works
+        stick.ox += dx * (1 - STICK_R / d); stick.oy += dy * (1 - STICK_R / d);
+        dx = p.x - stick.ox; dy = p.y - stick.oy;
+      }
+      stick.dx = dx / STICK_R; stick.dy = dy / STICK_R;
+      continue;
+    }
     for (const b of TBTN) if (Math.hypot(p.x - b.x, p.y - b.y) < b.r + 8) touch[b.k] = true;
   }
+  if (!held) Object.assign(stick, { id: null, dx: 0, dy: 0 });
+  // A dead zone in the middle, and up needs a firm push to start but only a little to keep (no flicker).
+  touch.left = stick.dx < -0.3; touch.right = stick.dx > 0.3;
+  touch.up = touch.up ? stick.dy < -0.4 : stick.dy < -0.6;
+  touch.down = stick.dy > 0.7 && Math.abs(stick.dx) < 0.7;
 }
 canvas.addEventListener('touchstart', e => {
   handleTouches(e);
@@ -118,6 +145,7 @@ function devState(dev) {
     st.join = JOIN_KEYS[dev].some(down); st.start = down('Enter');
   } else if (dev === 'touch') {
     for (const k of ACTIONS) st[k] = touch[k];
+    st.auto = touch.up; // the joystick does the double jump for you if you keep holding up
   } else if (dev.startsWith('pad:')) {
     const p = padById(+dev.slice(4));
     if (p) { Object.assign(st, padState(p)); st.join = st.fire || st.up || st.start; }
@@ -133,7 +161,7 @@ function getInput(pi) {
     const st = {};
     for (const k of ACTIONS) st[k] = BINDS.solo[k].some(down);
     for (const p of gamepads()) { const ps = padState(p); for (const k of ACTIONS) st[k] = st[k] || ps[k]; }
-    if (touch.used) for (const k of ACTIONS) st[k] = st[k] || touch[k];
+    if (touch.used) { for (const k of ACTIONS) st[k] = st[k] || touch[k]; st.auto = touch.up; }
     return st;
   }
   return party[pi] ? devState(party[pi].dev) : {};
@@ -226,6 +254,17 @@ const SFX = {
   dash() { noise(0.25, { vol: 0.15, freq: 1500 }); tone(300, 0.2, { type: 'triangle', vol: 0.06, slide: 500 }); },
   slam() { noise(0.3, { vol: 0.35, freq: 400 }); tone(90, 0.3, { type: 'sine', vol: 0.4, slide: -50 }); },
   zap() { tone(1800, 0.12, { type: 'sawtooth', vol: 0.05, slide: -1500 }); noise(0.06, { vol: 0.08, freq: 8000 }); },
+  card() { const n = performance.now(); if (n - lastShotSfx < 60) return; lastShotSfx = n; noise(0.05, { vol: 0.06, freq: 7000 }); tone(1500, 0.05, { type: 'triangle', vol: 0.03, slide: 600 }); },
+  hook() { tone(700, 0.08, { type: 'triangle', vol: 0.04, slide: 500 }); noise(0.04, { vol: 0.04, freq: 5000 }); },
+  twang(t = 1) { // an acoustic guitar string: bright pluck that bends down
+    const f = pick([196, 220, 247, 294]);
+    tone(f * 2, 0.4, { type: 'triangle', vol: 0.07, slide: -12 }); tone(f, 0.45, { type: 'sawtooth', vol: 0.03 * t, slide: -8 });
+    noise(0.08, { vol: 0.08, freq: 1200 });
+  },
+  love() { const n = performance.now(); if (n - lastShotSfx < 60) return; lastShotSfx = n; tone(pick([784, 880, 988]), 0.12, { type: 'sine', vol: 0.05, slide: 200 }); },
+  lullaby() { [659, 587, 523, 392, 523].forEach((f, i) => tone(f, 0.35, { type: 'sine', vol: 0.06, delay: i * 0.18 })); },
+  honk() { tone(330, 0.18, { type: 'square', vol: 0.06 }); tone(415, 0.18, { type: 'square', vol: 0.05 }); tone(330, 0.22, { type: 'square', vol: 0.06, delay: 0.24 }); tone(415, 0.22, { type: 'square', vol: 0.05, delay: 0.24 }); },
+  aww() { [523, 659, 784].forEach((f, i) => tone(f, 0.2, { type: 'sine', vol: 0.05, delay: i * 0.05, slide: 80 })); },
   powerup() { [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.12, { vol: 0.06, type: 'square', delay: i * 0.07 })); },
   fanfare() { // "Yankee Doodle" (public domain)
     const s = [N.C4, N.C4, N.D4, N.E4, N.C4, N.E4, N.D4, N.G3, N.C4, N.C4, N.D4, N.E4, N.C4, 0, N.B3, 0];
@@ -666,7 +705,7 @@ function launchFirework(x, y, colors) {
 
 function explode(x, y, r, o = {}) {
   const owner = o.owner || 'player', dmg = o.dmg ?? 3, tileDmg = o.tileDmg ?? 3;
-  explosions.push({ x, y, r, t: 0, max: o.ring ? 0.45 : 0.3 + r / 220, color: o.ring ? 'ring' : o.color });
+  explosions.push({ x, y, r, t: 0, max: o.ring ? 0.45 : 0.3 + r / 220, color: o.ring ? 'ring' : o.love ? 'love' : o.yarn ? 'yarn' : o.color });
   const x0 = Math.floor((x - r) / TILE), x1 = Math.floor((x + r) / TILE), y0 = Math.floor((y - r) / TILE), y1 = Math.floor((y + r) / TILE);
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
     const d = Math.hypot(tx * TILE + 8 - x, ty * TILE + 8 - y);
@@ -676,7 +715,10 @@ function explode(x, y, r, o = {}) {
     for (const e of enemies) {
       if (!e.alive) continue;
       const d = Math.hypot(e.x + e.w / 2 - x, e.y + e.h / 2 - y);
-      if (d < r + Math.max(e.w, e.h) / 2) { e.vy = -rand(120, 200); e.damage(dmg, x, true); }
+      if (d < r + Math.max(e.w, e.h) / 2) {
+        e.vy = -rand(120, 200); e.damage(dmg, x, true, o.love);
+        if (o.sleep && e.alive) { e.sleep = Math.max(e.sleep || 0, o.sleep); if (o.sleepText) popText(e.cx, e.y - 8, o.sleepText, '#fff', 5); }
+      }
     }
     if (boss && boss.alive && boss.state !== 'dying') {
       const d = Math.hypot(boss.x + boss.w / 2 - x, boss.y + boss.h / 2 - y);
@@ -689,6 +731,16 @@ function explode(x, y, r, o = {}) {
   for (const c of corpses) { const d = Math.hypot(c.x - x, c.y - y); if (d < r + 20) { c.vx += sign(c.x - x) * 120; c.vy -= 150; } }
   if (o.ring) { // drum shockwave: music notes instead of fire
     for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2; part(x, y, Math.cos(a) * 110, Math.sin(a) * 110, 0.5, pick(['#ff7b54', '#ffd34d', '#fff', '#6fb6ff']), 3, 0, 'note', 2); }
+    for (const e of enemies) if (e.alive && e.state === 'patrol' && Math.abs(e.x - x) < 200) { e.state = 'alert'; e.alertT = 0.4; }
+    return;
+  }
+  if (o.love || o.yarn) { // a soft boom: hearts (Grandma) or loops of yarn (Allison) instead of fire and smoke
+    for (let i = 0; i < Math.min(30, 8 + r / 3); i++) {
+      const a = rand(0, Math.PI * 2), s = rand(40, 100) * r / 40;
+      part(x, y, Math.cos(a) * s, Math.sin(a) * s, rand(0.5, 1), o.love ? pick(['#ff6b9b', '#ff8ab3', '#fff']) : pick(YARN), 3, 60, o.love ? 'heart' : 'yarn', 2);
+    }
+    shake = Math.max(shake, Math.min(6, r / 10));
+    if (o.love) SFX.aww(); else SFX.boom(r / 40);
     for (const e of enemies) if (e.alive && e.state === 'patrol' && Math.abs(e.x - x) < 200) { e.state = 'alert'; e.alertT = 0.4; }
     return;
   }
@@ -731,6 +783,13 @@ function kidExplosion(p) { // pending chain explosions from barrels and crates
   } else if (p.kind === 'atom') {
     explode(p.x, p.y, 50, { dmg: 10, tileDmg: 4, color: 'nuke' });
     nukes.push({ x: p.x, y: p.y, t: 0, max: 2.2, s: 0.4 });
+  } else if (p.kind === 'love') { // Grandma's love reaches one robot
+    const e = p.target;
+    if (!e || e.alive === false) return;
+    const ex = e.x + e.w / 2, ey = e.y + e.h / 2;
+    for (let i = 0; i < 10; i++) part(ex, ey, rand(-60, 60), rand(-80, 10), 0.8, pick(['#ff6b9b', '#fff']), 3, 0, 'heart');
+    SFX.love();
+    if (e === boss) { boss.damage(30); popText(ex, e.y - 10, 'AWW, THANKS GRANDMA', '#ff8ab3', 5); } else e.damage(40, ex, true, true);
   } else if (p.kind === 'sudo') sudoZap(0);
   else if (p.kind === 'zap') { // a bolt of green code from the sky
     const e = p.target;
@@ -746,7 +805,7 @@ function kidExplosion(p) { // pending chain explosions from barrels and crates
 
 // ---------------------------------------------------------------- heroes
 // Every hero's FIRE and SPECIAL get an upgrade each level: tier 1 in level 1 up to tier 4 in level 4.
-const HERO_ORDER = ['noah', 'elijah', 'andrew'];
+const HERO_ORDER = ['noah', 'elijah', 'andrew', 'aj', 'allison', 'grandpa', 'grandma'];
 const HEROES = {
   noah: { name: 'NOAH', color: '#6fb6ff', bg: '#1d3557', noAmmo: 'NO PLUSHIES!',
     fire: ['POP ROCKET', 'TWIN ROCKETS', 'HOMING ROCKETS', 'FIREWORK ROCKETS'],
@@ -757,7 +816,38 @@ const HEROES = {
   andrew: { name: 'ANDREW', color: '#ff7b54', bg: '#2a1a3a', noAmmo: 'NO GUITAR PICKS!',
     fire: ['POWER CHORD', 'BIG RIFF', 'TRIPLE CHORD', 'SHRED SOLO'],
     special: ['BJJ TAKEDOWN', 'DRUM SOLO', 'SUDO KILL BOTS', 'ROCK CONCERT'] },
+  aj: { name: 'AJ', color: '#c79bff', bg: '#2d1b4e', noAmmo: 'OUT OF LATTES!',
+    fire: ['GOLD CARD', 'CARD FAN', 'PLATINUM CARDS', 'DIAMOND CARDS'],
+    special: ['SMOOTH TALK', 'LATTE BOMB', 'LULLABY', 'GOLDEN LIMO'] },
+  allison: { name: 'ALLISON', color: '#ff8ad8', bg: '#3a1a33', noAmmo: 'OUT OF YARN!',
+    fire: ['CROCHET HOOK', 'HOOK + NEEDLE', 'NEEDLE VOLLEY', 'HOOK STORM'],
+    special: ['AMIGURUMI BOMB', 'PLUSHIE PARADE', 'MEGA YARN BALL', 'AMIGURUMI ARMY'] },
+  grandpa: { name: 'GRANDPA', color: '#e0a060', bg: '#3a2410', noAmmo: 'BROKE A STRING!',
+    fire: ['GUITAR SWING', 'STRING ZING', 'TRIPLE TWANG', 'THUNDER STRUM'],
+    special: ['GUITAR SLAM', 'HOEDOWN STOMP', 'GUITAR BOOMERANG', 'GRAND OLE BOOM'] },
+  grandma: { name: 'GRANDMA', color: '#ff8ab3', bg: '#3a1424', noAmmo: 'OUT OF COOKIES!',
+    fire: ['LOVE HEART', 'HEART TRIO', 'HOMING HUGS', 'HEART STORM'],
+    special: ['FRESH COOKIES', 'BIG HUG', 'CARE PACKAGES', "GRANDMA'S LOVE"] },
 };
+// AJ talks robots into taking a nap. Sleeping robots don't shoot and take extra damage.
+const AJ_LINES = ['YOU LOOK TIRED...', 'NAP TIME, BUDDY', 'SHHH...', 'SLEEP MODE ON', 'TREAT YOURSELF TO A NAP', 'LIE DOWN, BESTIE'];
+const AMIGU_NAMES = ['BUNNY', 'FROG', 'OCTOPUS', 'BEE', 'WHALE', 'DINO'];
+const YARN = ['#ff8ad8', '#7dd3ff', '#ffd34d', '#b6ff6e', '#c79bff', '#ffb36b'];
+const PUPPY = ['#c68642', '#f5f5f5', '#8b5a2b', '#f4d03f', '#3b2a1a'];
+function healTeam(n, shield = 0) { // Grandma takes care of everybody
+  for (const p of players) {
+    if (!p.alive) continue;
+    if (p.hp < p.maxHp) popText(p.cx, p.y - 10, '+' + Math.min(n, p.maxHp - p.hp) + ' HEART', '#ff8ab3', 5);
+    p.hp = Math.min(p.maxHp, p.hp + n);
+    if (shield) p.shield = Math.max(p.shield, shield);
+    for (let i = 0; i < 6; i++) part(p.cx + rand(-6, 6), p.cy + rand(-8, 8), rand(-20, 20), rand(-60, -30), 0.9, '#ff6b9b', 3, 0, 'heart');
+  }
+}
+function napTime(cond, secs) { // AJ's sleepy talk: every robot that matches dozes off
+  let n = 0;
+  for (const e of enemies) if (e.alive && cond(e)) { e.sleep = Math.max(e.sleep || 0, secs); e.flash = 0.1; n++; }
+  return n;
+}
 const tier = () => clamp(levelIndex + 1, 1, 4);
 const nextHero = (h, step = 1) => HERO_ORDER[(HERO_ORDER.indexOf(h) + step + HERO_ORDER.length) % HERO_ORDER.length];
 const BJJ_MOVES = ['TAKEDOWN!', 'ARMBAR!', 'TRIANGLE CHOKE!', 'KIMURA!', 'SWEEP!', 'MOUNT!'];
@@ -783,7 +873,7 @@ function sudoZap(delay) { // Andrew's sysadmin move: zap every robot on the scre
 class Player {
   constructor(idx, hero, x, y) {
     Object.assign(this, { idx, hero, x, y, w: 10, h: 20, vx: 0, vy: 0, facing: 1, hp: 3, maxHp: 3, specials: 3, cool: 0, inv: 2,
-      onGround: false, coyote: 0, jumpBuf: 0, airJumps: 1, dash: 0, drum: 0, drumN: 0, drumT: 0, alive: true, deadT: 0, anim: 0, shield: 0, prev: {}, climbing: false, muzzle: 0,
+      onGround: false, coyote: 0, jumpBuf: 0, airJumps: 1, holdJump: false, pound: 0, poundT: 0, dash: 0, drum: 0, drumN: 0, drumT: 0, alive: true, deadT: 0, anim: 0, shield: 0, prev: {}, climbing: false, muzzle: 0,
       waiting: false, ghostY: 0, carried: false, dropThrough: false, moving: false });
   }
   get cx() { return this.x + this.w / 2; }
@@ -825,12 +915,15 @@ class Player {
     // Wall climbing: push into any wall and hold jump to scale it.
     const wall = dir !== 0 && touchingWall(this, dir);
     if (this.onGround) this.airJumps = 1;
+    if (!inp.up) this.holdJump = false;
+    // Touch joystick: keep holding up and the double jump happens by itself at the top of the jump.
+    const autoDouble = this.holdJump && inp.up && this.vy > -40;
     if (this.jumpBuf > 0 && this.coyote > 0) {
-      this.vy = -JUMP; this.jumpBuf = 0; this.coyote = 0; SFX.jump();
+      this.vy = -JUMP; this.jumpBuf = 0; this.coyote = 0; SFX.jump(); this.holdJump = !!inp.auto;
       for (let i = 0; i < 4; i++) part(this.cx, this.y + this.h, rand(-40, 40), rand(-20, 0), 0.3, '#ddd', 2, 0, 'smoke');
-    } else if (pressed('up') && !wall && this.airJumps > 0 && this.coyote <= 0) {
+    } else if ((pressed('up') || autoDouble) && !wall && this.airJumps > 0 && this.coyote <= 0) {
       // Double jump: one extra hop in the air, so nothing is ever out of reach after a big blast.
-      this.vy = -JUMP * 0.9; this.airJumps--; this.jumpBuf = 0;
+      this.vy = -JUMP * 0.9; this.airJumps--; this.jumpBuf = 0; this.holdJump = false;
       SFX.jump(); tone(560, 0.1, { vol: 0.04, slide: 400 });
       for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2; part(this.cx, this.y + this.h, Math.cos(a) * 60, Math.sin(a) * 20 + 10, 0.35, '#fff', 2, 0, 'smoke'); }
     }
@@ -847,6 +940,7 @@ class Player {
     this.onGround = ry === 1;
     if (ry !== 0) this.vy = 0;
     if (this.onGround && !wasGround) for (let i = 0; i < 3; i++) part(this.cx, this.y + this.h, rand(-30, 30), rand(-15, 0), 0.25, '#ccc', 2, 0, 'smoke');
+    if (this.pound) this.updatePound(dt);
 
     if (players.length > 1) this.x = clamp(this.x, camX + 2, camX + VW - this.w - 2);
     if (this.onGround) {
@@ -885,6 +979,30 @@ class Player {
       const rays = T <= 2 ? [[0, 0]] : T === 3 ? [[-3, 0], [3, 0]] : [[0, -60], [0, 0], [0, 60]];
       for (const [dy, vy] of rays) proj({ kind: 'laser', y: gy + dy + rand(-1, 1), vx: f * 480, vy, life: 0.6, dmg: 1, pierce: T });
       SFX.laser();
+    } else if (this.hero === 'aj') { // spinning gold cards: AJ pays with style
+      this.cool = [0.2, 0.26, 0.2, 0.24][T - 1];
+      for (const vy of T === 1 || T === 3 ? [0] : [-45, 0, 45]) proj({ kind: 'card', vx: f * (T >= 3 ? 420 : 340), vy, life: 0.8, dmg: T >= 3 ? 2 : 1.5, pierce: T >= 3 ? 2 : 0, homing: T >= 4 });
+      SFX.card();
+    } else if (this.hero === 'allison') { // crochet hooks lob in an arc, knitting needles fly straight through
+      this.cool = [0.22, 0.26, 0.26, 0.28][T - 1];
+      const shots = [[['hook', 0]], [['hook', -10], ['needle', 0]], [['needle', -40], ['needle', 0], ['needle', 40]], [['hook', -90], ['needle', -40], ['hook', 0], ['needle', 40], ['hook', 70]]][T - 1];
+      for (const [kind, vy] of shots) {
+        const hook = kind === 'hook';
+        proj({ kind, vx: f * (hook ? 290 : 400), vy: vy - (hook ? 70 : 0), grav: hook ? 320 : 0, life: 0.9, dmg: hook ? 2 : 1.5, pierce: hook ? 0 : T >= 3 ? 2 : 1 });
+      }
+      SFX.hook();
+    } else if (this.hero === 'grandpa') { // Grandpa swings his old guitar like a bat, and later the strings fly too
+      this.cool = [0.32, 0.36, 0.4, 0.42][T - 1];
+      proj({ kind: 'swing', x: this.cx + f * 12, y: this.y + 9, vx: f * 80, life: 0.13, dmg: 3, pierce: 99 });
+      if (T >= 2) proj({ kind: 'string', vx: f * 360, life: 0.7, dmg: 1.5, pierce: 2 });
+      if (T >= 3) for (const vy of [-70, 70]) proj({ kind: 'string', vx: f * 340, vy, life: 0.6, dmg: 1.5, pierce: 2 });
+      if (T >= 4) proj({ kind: 'chord', vx: f * 250, life: 0.5, dmg: 3, pierce: 99, big: 1 });
+      SFX.twang(T);
+    } else if (this.hero === 'grandma') { // hearts full of love: robots they finish off turn into puppies
+      this.cool = [0.24, 0.26, 0.24, 0.3][T - 1];
+      const vys = T === 1 ? [0] : T === 2 ? [-50, 0, 50] : T === 3 ? [-35, 35] : [-90, -45, 0, 45, 90];
+      for (const vy of vys) proj({ kind: 'lheart', vx: f * 250, vy, life: 1.1, dmg: T === 1 ? 1.5 : 2, love: true, homing: T >= 3 });
+      SFX.love();
     } else if (T >= 4) { // Andrew's shred solo: a stream of notes with a chord every fifth note
       this.cool = 0.08; this.noteN = (this.noteN || 0) + 1;
       proj({ kind: 'note', vx: f * 340, vy: rand(-10, 10), life: 0.9, dmg: 1.5, pierce: 1 });
@@ -899,6 +1017,10 @@ class Player {
     const T = tier();
     this.specials--;
     if (this.hero === 'andrew') return this.andrewSpecial(T);
+    if (this.hero === 'aj') return this.ajSpecial(T);
+    if (this.hero === 'allison') return this.allisonSpecial(T);
+    if (this.hero === 'grandpa') return this.grandpaSpecial(T);
+    if (this.hero === 'grandma') return this.grandmaSpecial(T);
     if (this.hero === 'noah' && T === 4) { // plushies rain from the sky ahead of Noah
       for (let i = 0; i < 7; i++) grenades.push({ x: this.cx + this.facing * (40 + i * 36) - 4, y: camY - 20 - i * 16, w: 8, h: 8, vx: 0, vy: 140, kind: 'teddy', fuse: 4, spin: 0, impact: true, r: 44, dmg: 10, quiet: true });
       setBanner('TEDDY AIRSTRIKE!', '#ffb36b', 1.6); SFX.whistle();
@@ -928,6 +1050,96 @@ class Player {
       for (const d of [-1, 1]) grenades.push({ x: this.cx + d * 48 - 6, y: camY - 30, w: 12, h: 14, vx: 0, vy: 60, kind: 'amp', fuse: 4, spin: 0, impact: true });
       for (let i = 0; i < 4; i++) launchFirework(this.cx + rand(-120, 120), this.y + 20);
       pending.push({ kind: 'sudo', delay: 0.9 });
+    }
+  }
+  ajSpecial(T) {
+    const f = this.facing, onScreen = e => e.x + e.w > camX && e.x < camX + VW;
+    if (T === 1) { // smooth talk: the robots in front of AJ decide to lie down for a nap
+      popText(this.cx, this.y - 12, pick(AJ_LINES), HEROES.aj.color, 6); SFX.lullaby();
+      for (let i = 0; i < 14; i++) part(this.cx + f * 8, this.y + 6, f * rand(60, 170), rand(-50, 50), 0.7, pick(['#c79bff', '#fff', '#ffd34d']), 2, 0, 'star', 2);
+      napTime(e => Math.abs(e.cy - this.cy) < 60 && (e.cx - this.cx) * f > -12 && Math.abs(e.cx - this.cx) < 180, 6);
+      if (boss && boss.alive && boss.state !== 'dying' && Math.abs(boss.cx - this.cx) < 200) { boss.damage(15); popText(boss.cx, boss.y - 10, '*YAWN*', '#c79bff', 8); }
+    } else if (T === 2) { // a fancy latte that bursts into sleepy foam
+      grenades.push({ x: this.cx - 4, y: this.y + 2, w: 8, h: 9, vx: f * 200 + this.vx * 0.4, vy: -230, spin: 0, kind: 'latte', fuse: 1.3 });
+      SFX.throw(); popText(this.cx, this.y - 10, 'EXTRA FOAM!', HEROES.aj.color, 6);
+    } else { // lullaby: every robot on screen falls asleep (and at level 4 a golden limo drives through)
+      setBanner(T === 3 ? 'LULLABY...' : 'GOLDEN LIMO!', T === 3 ? '#c79bff' : '#ffd34d', 2, T === 3 ? 'AJ sings every robot to sleep' : 'AJ called a ride. Beep beep!');
+      SFX.lullaby();
+      napTime(onScreen, 8);
+      for (let i = 0; i < 24; i++) part(camX + rand(0, VW), camY + rand(40, VH - 40), rand(-10, 10), -20, 1.5, pick(['#c79bff', '#fff']), 3, 0, 'note', 0);
+      if (boss && boss.alive && boss.state !== 'dying' && onScreen(boss)) { boss.damage(25); popText(boss.cx, boss.y - 10, '*SNORE*', '#c79bff', 8); }
+      if (T === 4) {
+        grenades.push({ x: this.cx - f * 40 - 17, y: this.y + this.h - 14, w: 34, h: 14, vx: f * 260, vy: 0, spin: 0, kind: 'limo', fuse: 2.6, dir: f, tick: 0.15 });
+        SFX.honk();
+      }
+    }
+  }
+  allisonSpecial(T) {
+    const f = this.facing, look = () => Math.floor(Math.random() * 6);
+    if (T === 1) { // a crocheted plushie that pops into a ball of yarn
+      grenades.push({ x: this.cx - 4, y: this.y + 4, w: 8, h: 8, vx: f * 190 + this.vx * 0.4, vy: -230, spin: 0, kind: 'amigu', look: look(), fuse: 1.3 });
+      SFX.throw();
+    } else if (T === 2) { // three plushies hop off toward the robots
+      for (let i = 0; i < 3; i++) grenades.push({ x: this.cx - 4, y: this.y + 4, w: 8, h: 8, vx: f * (60 + i * 30), vy: -180, spin: 0, kind: 'amigu', look: look(), fuse: 2.6 + i * 0.4, walker: true, dir: f, hop: 0 });
+      popText(this.cx, this.y - 10, 'PLUSHIE PARADE!', HEROES.allison.color, 6); SFX.throw();
+    } else if (T === 3) { // a giant ball of yarn that rolls along tangling up every robot it passes
+      grenades.push({ x: this.cx - 7, y: this.y + 4, w: 14, h: 14, vx: f * 160, vy: -60, spin: 0, kind: 'yarnball', fuse: 2.2, dir: f, tick: 0.2 });
+      popText(this.cx, this.y - 10, 'MEGA YARN BALL!', HEROES.allison.color, 6); SFX.throw();
+    } else { // one of every plushie rains down from the sky
+      setBanner('AMIGURUMI ARMY!', '#ff8ad8', 1.8, 'Bunny, frog, octopus, bee, whale and dino!');
+      for (let i = 0; i < 6; i++) grenades.push({ x: this.cx + f * (36 + i * 34) - 4, y: camY - 20 - i * 14, w: 8, h: 8, vx: 0, vy: 140, kind: 'amigu', look: i, fuse: 4, spin: 0, impact: true, big: true });
+      SFX.whistle();
+    }
+  }
+  grandpaSpecial(T) {
+    const f = this.facing;
+    if (T <= 2) { // jump up and slam the guitar into the ground
+      this.pound = T; this.poundT = 0.22; this.vy = -280; this.inv = Math.max(this.inv, 0.6);
+      popText(this.cx, this.y - 10, T === 1 ? 'GUITAR SLAM!' : 'HOEDOWN STOMP!', HEROES.grandpa.color, 7); SFX.jump();
+    } else if (T === 3) { // the guitar flies out spinning, smacks everything, and comes back
+      projectiles.push({ owner: 'player', kind: 'gboom', x: this.cx + f * 6, y: this.y + 8, vx: f * 320, vy: 0, life: 2.4, dmg: 3, pierce: 999, hit: new Set(), pi: this.idx, t: 0 });
+      popText(this.cx, this.y - 10, 'GUITAR BOOMERANG!', HEROES.grandpa.color, 6); SFX.throw();
+    } else { // a giant guitar falls out of the sky
+      setBanner('GRAND OLE BOOM!', '#e0a060', 2, 'Grandpa saved the best song for last');
+      grenades.push({ x: this.cx + f * 70 - 10, y: camY - 50, w: 20, h: 20, vx: 0, vy: 220, kind: 'bigguitar', fuse: 4, spin: 0, impact: true });
+      SFX.whistle();
+    }
+  }
+  grandmaSpecial(T) {
+    if (T === 1) { // fresh cookies: everybody heals a heart, and nearby robots get loved into puppies
+      healTeam(1);
+      explode(this.cx, this.cy, 60, { dmg: 6, tileDmg: 0, love: true });
+      for (let i = 0; i < 16; i++) part(this.cx, this.cy, rand(-120, 120), rand(-180, -40), 1, pick(['#c68642', '#8b5a2b', '#f1c27d']), 3, 500);
+      popText(this.cx, this.y - 12, 'COOKIES FOR EVERYONE!', HEROES.grandma.color, 6);
+    } else if (T === 2) { // a great big hug: heals, shields, and a wave of love
+      healTeam(1, 2);
+      explode(this.cx, this.cy, 95, { dmg: 12, tileDmg: 1, love: true });
+      popText(this.cx, this.y - 12, 'BIG HUG!', HEROES.grandma.color, 8);
+    } else if (T === 3) { // care packages fall from the sky: love bombs, and a bomb for every teammate
+      healTeam(1);
+      for (let i = 0; i < 3; i++) grenades.push({ x: this.cx + this.facing * (50 + i * 50) - 6, y: camY - 20 - i * 24, w: 12, h: 12, vx: 0, vy: 120, kind: 'gift', fuse: 4, spin: 0, impact: true });
+      for (const p of players) if (p.alive) { p.specials = Math.min(5, p.specials + 1); popText(p.cx, p.y - 18, '+1 BOMB', '#ffd34d', 5); }
+      setBanner('CARE PACKAGES!', '#ff8ab3', 1.6, 'Grandma always thinks of everybody');
+      SFX.whistle();
+    } else { // Grandma's love: every robot on screen becomes a puppy, and the whole team is healed and shielded
+      setBanner("GRANDMA'S LOVE!!!", '#ff8ab3', 2.4, 'Every robot gets a hug. Every robot becomes a puppy.');
+      healTeam(3, 3);
+      let i = 0;
+      for (const e of enemies) if (e.alive && e.x + e.w > camX && e.x < camX + VW) pending.push({ kind: 'love', target: e, delay: 0.3 + 0.1 * i++ });
+      if (boss && boss.alive && boss.state !== 'sleep' && boss.x < camX + VW) pending.push({ kind: 'love', target: boss, delay: 0.3 + 0.1 * i });
+      for (let k = 0; k < 40; k++) part(camX + rand(0, VW), camY + rand(-20, 40), rand(-20, 20), rand(40, 90), 2.5, pick(['#ff6b9b', '#ff8ab3', '#fff']), 3, 0, 'heart');
+      flash = 0.6; flashColor = '#ffd6e7'; SFX.holy();
+    }
+  }
+  updatePound(dt) { // Grandpa's guitar slam: up, then down hard
+    this.poundT -= dt;
+    if (this.poundT <= 0 && !this.onGround) this.vy = 440;
+    if (this.poundT <= 0 && this.onGround) {
+      const T = this.pound; this.pound = 0;
+      explode(this.cx, this.y + this.h - 4, T === 1 ? 40 : 46, { dmg: 8, tileDmg: 2 });
+      for (let i = 0; i < 8; i++) part(this.cx, this.y + this.h, rand(-80, 80), rand(-120, -40), 0.6, pick(['#e0a060', '#ffd34d', '#fff']), 3, 0, 'note', 1);
+      if (T === 2) for (const d of [-1, 1]) projectiles.push({ owner: 'player', kind: 'quake', x: this.cx + d * 10, y: this.y + this.h - 5, vx: d * 230, vy: 0, life: 0.8, dmg: 4, pierce: 999, hit: new Set() });
+      popText(this.cx, this.y - 10, T === 1 ? 'TWANNNG!' : 'YEE-HAW!', HEROES.grandpa.color, 7); SFX.slam(); SFX.twang(2);
     }
   }
   updateDash(dt) {
@@ -1010,6 +1222,15 @@ class Enemy {
   update(dt) {
     this.anim += dt; this.flash -= dt;
     if (this.x + this.w < camX - 80 || this.x > camX + VW + 80) return; // asleep off-screen
+    if (this.sleep > 0) { // napping (AJ talked it into it, or it's tangled in Allison's yarn)
+      this.sleep -= dt; this.state = 'sleep'; this.vx = 0;
+      if (this.sleep <= 0) { this.state = 'alert'; this.alertT = 0.5; popText(this.cx, this.y - 8, 'HUH?', '#fff', 5); }
+      if (this.type === 'jet') { moveY(this, (this.baseY + 24 - this.y) * dt); return; } // floats down a little while it dozes
+      this.vy = Math.min(this.vy + GRAV * dt, MAXFALL);
+      const ry = moveY(this, this.vy * dt);
+      this.onGround = ry === 1; if (ry) this.vy = 0;
+      return;
+    }
     const tgt = nearestPlayer(this);
     const sees = tgt ? this.canSee(tgt) : false;
     if (this.type === 'jet') return this.updateJet(dt, tgt, sees);
@@ -1068,8 +1289,10 @@ class Enemy {
     }
     SFX.enemyShot();
   }
-  damage(d, fromX, explosive) {
+  damage(d, fromX, explosive, love) {
     if (!this.alive) return;
+    if (this.sleep > 0) d *= 1.5; // a sleeping robot can't block
+    this.loved = !!love;
     this.hp -= d; this.flash = 0.1;
     if (this.state === 'patrol') { this.state = 'alert'; this.alertT = 0.3; this.facing = sign(fromX - this.cx); }
     if (!explosive) SFX.hit();
@@ -1079,6 +1302,12 @@ class Enemy {
     this.alive = false; level.kills++;
     const pts = { grunt: 100, shield: 150, jet: 150, heavy: 200 }[this.type];
     score += pts; popText(this.cx, this.y - 4, '+' + pts, '#ffd34d');
+    if (this.loved) { // Grandma's love turns the robot into a happy puppy that floats away on a heart balloon
+      part(this.cx, this.y + this.h, sign(this.cx - fromX) * rand(8, 20), -26, 3, pick(PUPPY), 1, 0, 'puppy');
+      for (let i = 0; i < 8; i++) part(this.cx, this.cy, rand(-70, 70), rand(-90, -10), 0.9, pick(['#ff6b9b', '#ff8ab3', '#fff']), 3, 0, 'heart');
+      popText(this.cx, this.y - 12, pick(['AWWW!', 'GOOD BOY!', 'PUPPY!', 'ARF!']), '#ff8ab3', 6); SFX.aww();
+      return;
+    }
     addCorpse({ type: this.type, x: this.cx, y: this.cy, w: this.w, h: this.h, vx: sign(this.cx - fromX) * rand(90, 170), vy: -rand(180, 260), rot: 0, vr: rand(-12, 12), t: rand(0.7, 1.1), facing: this.facing });
   }
 }
@@ -1261,16 +1490,31 @@ function updateProjectiles(dt) {
         b.vx = Math.cos(na) * sp; b.vy = Math.sin(na) * sp;
       }
     }
+    if (b.kind === 'gboom') { // Grandpa's guitar boomerang: flies out, slows, turns around and comes home
+      b.t += dt;
+      if (!b.back && b.t > 0.5) { b.back = true; b.hit.clear(); }
+      const p = players.find(q => q.idx === b.pi && q.alive);
+      if (b.back) {
+        if (!p) { b.dead = true; continue; }
+        const dx = p.cx - b.x, dy = p.cy - b.y, d = Math.hypot(dx, dy) || 1;
+        b.vx = dx / d * 340; b.vy = dy / d * 340;
+        if (d < 12) { b.dead = true; popText(p.cx, p.y - 8, 'GOT IT!', HEROES.grandpa.color, 5); continue; }
+      } else b.vx *= 1 - dt * 1.6;
+      if (Math.random() < 0.5) part(b.x, b.y, rand(-10, 10), rand(-10, 10), 0.3, pick(['#e0a060', '#fff']), 2, 0, 'note');
+    }
     b.x += b.vx * dt; b.y += b.vy * dt;
+    if (b.kind === 'quake' && Math.random() < 0.8) part(b.x, b.y + 4, rand(-30, 30), rand(-90, -30), 0.4, pick(['#8b5a2b', '#c9a227', '#ddd']), 3, 500);
     if (b.kind === 'rocket' && Math.random() < 0.7) part(b.x - sign(b.vx) * 4, b.y, rand(-10, 10), rand(-10, 10), 0.3, '#ccc', 2, 0, 'smoke');
     if (b.kind === 'missile' && Math.random() < 0.7) part(b.x - sign(b.vx) * 5, b.y, 0, rand(-10, 10), 0.4, '#aaa', 2, 0, 'smoke');
     if (b.kind === 'bomb' && Math.random() < 0.5) part(b.x, b.y, 0, 0, 0.3, '#ffd34d', 2);
     if (b.life <= 0 || b.x < camX - 100 || b.x > camX + VW + 100 || b.y > level.h * TILE + 20) { b.dead = true; continue; }
     const tx = Math.floor(b.x / TILE), ty = Math.floor(b.y / TILE);
-    if (isSolid(tx, ty)) {
+    if (b.kind === 'gboom' && isSolid(tx, ty)) damageTile(tx, ty, 0.25); // the boomerang flies right through
+    else if (isSolid(tx, ty)) {
       b.dead = true;
       if (b.kind === 'rocket') { explode(b.x, b.y, 18, { dmg: 2, tileDmg: 2 }); if (b.fw) fireworkSparks(b); }
-      else if (b.kind === 'chord') damageTile(tx, ty, 1);
+      else if (b.kind === 'chord' || b.kind === 'swing' || b.kind === 'quake') damageTile(tx, ty, 1);
+      else if (b.kind === 'lheart') for (let i = 0; i < 4; i++) part(b.x, b.y, rand(-50, 50), rand(-60, 0), 0.5, '#ff8ab3', 2, 0, 'heart');
       else if (b.kind === 'laser') { damageTile(tx, ty, 0.5); for (let i = 0; i < 3; i++) part(b.x, b.y, rand(-60, 60), rand(-60, 20), 0.2, '#39ff14', 2); }
       else if (b.kind === 'missile' || b.kind === 'bomb') explode(b.x, b.y, 22, { owner: 'enemy', tileDmg: 2 });
       else for (let i = 0; i < 3; i++) part(b.x, b.y, rand(-50, 50), rand(-50, 10), 0.2, '#ff6b3b', 2);
@@ -1282,12 +1526,13 @@ function updateProjectiles(dt) {
         if (e.alive === false || b.hit.has(e)) continue;
         if (b.x < e.x - 2 || b.x > e.x + e.w + 2 || b.y < e.y || b.y > e.y + e.h) continue;
         b.hit.add(e);
-        if (e.type === 'shield' && b.kind !== 'rocket' && b.kind !== 'chord' && sign(b.vx) === -e.facing) { // sound goes around shields
+        if (e.type === 'shield' && !GOES_AROUND_SHIELDS.has(b.kind) && e.state !== 'sleep' && sign(b.vx) === -e.facing) { // sound, love and guitars go around shields
           b.dead = true; SFX.clank(); for (let i = 0; i < 4; i++) part(b.x, b.y, -b.vx * rand(0.1, 0.3), rand(-80, 20), 0.25, '#fff', 2, 300);
           break;
         }
         if (b.kind === 'rocket') { b.dead = true; e.damage(b.dmg, b.x - b.vx); explode(b.x, b.y, 18, { dmg: 1, tileDmg: 2 }); if (b.fw) fireworkSparks(b); break; }
-        e.damage(b.dmg, b.x - b.vx);
+        if (e === boss) e.damage(b.dmg); else e.damage(b.dmg, b.x - b.vx, false, b.love);
+        if (b.kind === 'swing') { e.vx = sign(b.vx) * 200; e.vy = -150; for (let i = 0; i < 5; i++) part(b.x, b.y, rand(-60, 60), rand(-80, 0), 0.4, '#fff', 2, 0, 'star'); }
         if (--b.pierce < 0) { b.dead = true; break; }
       }
     } else {
@@ -1305,6 +1550,7 @@ function updateProjectiles(dt) {
   projectiles = projectiles.filter(b => !b.dead);
 }
 
+const GOES_AROUND_SHIELDS = new Set(['rocket', 'chord', 'swing', 'quake', 'lheart', 'gboom']);
 function fireworkSparks(b) {
   for (let k = 0; k < 3; k++) pending.push({ kind: 'spark', x: b.x + rand(-20, 20), y: b.y + rand(-16, 8), delay: 0.08 + k * 0.08 });
 }
@@ -1327,8 +1573,26 @@ function updateGrenades(dt) {
       g.tick -= dt;
       if (g.tick <= 0) { g.tick = 0.25; explode(g.x + 6, g.y + 10, 24, { dmg: 4, tileDmg: 2 }); }
     }
+    if (g.kind === 'yarnball') { // rolls along, leaving robots tangled up in yarn
+      g.vx = g.dir * 160;
+      if (touchingWall(g, g.dir) && ry === 1) g.vy = -260;
+      g.tick -= dt;
+      if (g.tick <= 0) { g.tick = 0.2; explode(g.x + 7, g.y + 8, 26, { dmg: 3, tileDmg: 1, yarn: true, sleep: 3 }); }
+      if (Math.random() < 0.6) part(g.x + 7, g.y + 12, -g.dir * rand(10, 30), rand(-20, 0), 1.2, pick(YARN), 2, 0, 'yarn');
+    }
+    if (g.kind === 'limo') { // AJ's golden limo: drives right through, honking, bumping robots out of the way
+      g.vx = g.dir * 260;
+      if (touchingWall(g, g.dir) && ry === 1) g.vy = -300;
+      g.tick -= dt;
+      if (g.tick <= 0) { g.tick = 0.15; explode(g.x + 17 + g.dir * 14, g.y + 8, 24, { dmg: 8, tileDmg: 3 }); }
+      if (Math.random() < 0.5) part(g.x + 17 - g.dir * 18, g.y + 10, -g.dir * 30, -10, 0.6, '#ccc', 3, 0, 'smoke');
+      if (Math.random() < 0.3) part(g.x + rand(0, 34), g.y, 0, -30, 0.5, '#ffd34d', 2, 0, 'star');
+    }
+    if (g.walker && ry === 1) { // Allison's plushies hop along on their own
+      g.vx = g.dir * 75; g.vy = touchingWall(g, g.dir) ? -280 : -130;
+    }
     let boom = g.fuse <= 0 || g.y > level.h * TILE || (g.impact && ry === 1);
-    if (g.kind !== 'rollbear') {
+    if (g.kind !== 'rollbear' && g.kind !== 'yarnball' && g.kind !== 'limo') {
       for (const e of enemies) if (e.alive && overlap(g, e)) boom = true;
       if (boss && boss.alive && boss.state !== 'dying' && overlap(g, boss)) boom = true;
     }
@@ -1344,6 +1608,31 @@ function updateGrenades(dt) {
       } else if (g.kind === 'rollbear') {
         explode(cx, cy, 60, { dmg: 14, tileDmg: 5 });
         popText(cx, cy - 20, 'MEGA KA-BEAR!!', '#ffb36b', 9);
+      } else if (g.kind === 'yarnball') {
+        explode(cx, cy, 58, { dmg: 12, tileDmg: 4, yarn: true, sleep: 5, sleepText: 'TANGLED!' });
+        popText(cx, cy - 20, 'MEGA YARN BOOM!', '#ff8ad8', 9);
+      } else if (g.kind === 'amigu') {
+        explode(cx, cy, g.big ? 46 : 44, { dmg: g.big ? 10 : 9, tileDmg: 4, yarn: true, sleep: 4, sleepText: 'TANGLED!' });
+        explode(cx, cy, 20, { dmg: 2, tileDmg: 2 });
+        if (!g.big) popText(cx, cy - 20, pick(['KA-KNIT!', 'YARN BOOM!', 'PURL-SPLOSION!']) , '#ff8ad8', 7);
+        else popText(cx, cy - 20, AMIGU_NAMES[g.look % 6] + '!', YARN[g.look % 6], 6);
+      } else if (g.kind === 'latte') {
+        explode(cx, cy, 46, { dmg: 10, tileDmg: 3 });
+        for (let i = 0; i < 16; i++) part(cx, cy, rand(-120, 120), rand(-160, -20), rand(0.8, 1.4), pick(['#fff', '#f5e6d0', '#c8a27a']), rand(3, 5), 200, 'smoke');
+        const n = napTime(e => Math.hypot(e.cx - cx, e.cy - cy) < 100, 6);
+        popText(cx, cy - 20, n ? 'SO COZY... ZZZ' : 'FANCY!', '#c79bff', 7);
+      } else if (g.kind === 'limo') {
+        explode(cx, cy, 50, { dmg: 12, tileDmg: 4 });
+        launchFirework(cx, cy, ['#ffd34d', '#fff']); launchFirework(cx, cy, ['#c79bff', '#ffd34d']);
+        popText(cx, cy - 20, 'VALET PARKING!', '#ffd34d', 7);
+      } else if (g.kind === 'gift') {
+        explode(cx, cy, 52, { dmg: 12, tileDmg: 2, love: true });
+        for (let i = 0; i < 10; i++) part(cx, cy, rand(-100, 100), rand(-160, -40), 1, pick(['#e63946', '#ffd34d', '#fff', '#2e9e44']), 3, 300, 'star');
+      } else if (g.kind === 'bigguitar') {
+        explode(cx, cy, 72, { dmg: 22, tileDmg: 5 });
+        for (const d of [-1, 1]) projectiles.push({ owner: 'player', kind: 'quake', x: cx + d * 14, y: cy + 4, vx: d * 240, vy: 0, life: 1, dmg: 5, pierce: 999, hit: new Set() });
+        for (let i = 0; i < 16; i++) part(cx, cy, rand(-140, 140), rand(-200, -60), 1, pick(['#e0a060', '#ffd34d', '#fff', '#6fb6ff']), 3, 200, 'note', 1);
+        popText(cx, cy - 26, 'TWAAAANG!!', '#e0a060', 10); SFX.twang(3);
       } else if (g.kind === 'amp') {
         explode(cx, cy, 34, { dmg: 8, tileDmg: 3 });
         popText(cx, cy - 16, 'AMP DROP!', '#ff7b54', 7);
@@ -1862,12 +2151,162 @@ function drawPick(x, y, s = 1) { // a tortoiseshell guitar pick: Andrew's specia
   R(x + 3 * s, y + 6 * s, 4 * s, 2 * s, c); R(x + 4 * s, y + 8 * s, 2 * s, s, d);
   R(x + 2 * s, y + s, 2 * s, s, d); R(x + 6 * s, y + 3 * s, 2 * s, s, d); R(x + 4 * s, y + 5 * s, s, s, d); R(x + 2 * s, y + 2 * s, s, s, '#f0b070');
 }
-function drawAmmoIcon(hero, x, y, s) {
-  if (hero === 'noah') drawTeddy(x, y, s); else if (hero === 'elijah') drawCrystal(x, y, s); else drawPick(x, y + 1, s);
+// AJ: swoopy hair, gold-rimmed shades, a sharp blazer with a gold chain, white sneakers,
+// a fancy latte in one hand and a gold card in the other.
+const AJ_PAL = [
+  { jacket: '#6c3fc4', pants: '#1f1f2e', hair: '#2b1a0e' },
+  { jacket: '#1f8f8a', pants: '#2b2b2b', hair: '#5a3311' },
+  { jacket: '#c2185b', pants: '#222244', hair: '#111111' },
+  { jacket: '#d4a017', pants: '#3a2a1a', hair: '#3b2414' },
+];
+function drawAJ(x, y, f, anim, moving, air, muzzle, v = 0) {
+  const p = px(x, y, 14, f), fr = moving ? Math.floor(anim * 12) % 4 : 0, C = AJ_PAL[v % 4];
+  const jD = shade(C.jacket, -0.3), jL = shade(C.jacket, 0.25), hairL = shade(C.hair, 0.35);
+  // the latte (behind him, in the back hand)
+  p(0, 8, 3, 1, '#ddd'); p(0, 9, 3, 4, '#fff'); p(0, 10, 3, 2, '#8b5a2b'); p(1, 7, 1, 1, '#ddd');
+  legs(p, fr, air, C.pants, '#f5f5f5');
+  // blazer over a white tee with a gold chain
+  p(3, 8, 8, 7, C.jacket); p(3, 8, 1, 7, jD); p(4, 8, 6, 1, jL);
+  p(6, 8, 2, 6, '#fff'); p(6, 9, 1, 1, '#ffd34d'); p(7, 10, 1, 1, '#ffd34d'); p(6, 11, 1, 1, '#ffd34d');
+  p(9, 12, 1, 1, '#ffd34d'); p(3, 14, 8, 1, jD);
+  // head: big swoop of hair and shades
+  p(4, 1, 7, 7, SKIN); p(4, 4, 1, 3, SKIN_D); p(5, 7, 5, 1, SKIN_D);
+  p(4, 0, 7, 2, C.hair); p(7, -1, 5, 2, C.hair); p(11, 0, 1, 1, C.hair); p(3, 1, 1, 3, C.hair); p(8, -1, 2, 1, hairL);
+  p(6, 3, 6, 1, '#ffd34d'); p(6, 4, 2, 1, '#111'); p(9, 4, 3, 1, '#111'); p(10, 4, 1, 1, '#7dd3ff');
+  p(8, 6, 3, 1, '#c0392b'); p(10, 5, 1, 1, '#c0392b'); // a confident smirk
+  // gold card held out front
+  p(10, 10, 2, 2, SKIN); p(11, 8, 3, 3, '#ffd34d'); p(11, 9, 3, 1, '#b8860b'); p(13, 8, 1, 1, '#fff');
+  if (muzzle) { glow(f > 0 ? x + 16 : x - 2, y + 9, 6, '#ffd34d'); p(15, 7, 1, 1, '#fff'); p(16, 9, 1, 1, '#ffd34d'); p(15, 11, 1, 1, '#fff'); }
 }
+// Allison: a crocheted beanie with a pom-pom, long hair, a cozy cardigan,
+// a yarn bag on her back, and a crochet hook in her hand.
+const ALLISON_PAL = [
+  { hat: '#ff8ad8', top: '#2e9e6a', hair: '#8b3a1a', pants: '#3a5a9a' },
+  { hat: '#7dd3ff', top: '#e67e22', hair: '#5a3311', pants: '#333344' },
+  { hat: '#ffd34d', top: '#8e44ad', hair: '#b5651d', pants: '#2c3e50' },
+  { hat: '#b6ff6e', top: '#c0392b', hair: '#3b2414', pants: '#4a3b2a' },
+];
+function drawAllison(x, y, f, anim, moving, air, muzzle, v = 0) {
+  const p = px(x, y, 14, f), fr = moving ? Math.floor(anim * 12) % 4 : 0, C = ALLISON_PAL[v % 4];
+  const tD = shade(C.top, -0.3), tL = shade(C.top, 0.25), hairD = shade(C.hair, -0.3);
+  // yarn bag with balls of yarn and a hook poking out
+  p(0, 8, 4, 6, '#b07a4a'); p(0, 10, 4, 1, '#8b5a2b'); p(0, 12, 4, 1, '#8b5a2b');
+  p(0, 6, 2, 2, '#ff8ad8'); p(2, 6, 2, 2, '#7dd3ff'); p(1, 3, 1, 3, '#ddd'); p(2, 3, 1, 1, '#ddd');
+  // long hair down her back
+  p(3, 2, 2, 9, C.hair); p(3, 2, 1, 9, hairD);
+  legs(p, fr, air, C.pants, '#5a3a1a');
+  // cardigan with knit rows and buttons
+  p(3, 8, 8, 7, C.top); p(3, 8, 1, 7, tD); p(4, 8, 6, 1, tL);
+  p(4, 11, 6, 1, tD); p(7, 9, 1, 1, '#fff'); p(7, 12, 1, 1, '#fff');
+  // face
+  p(5, 1, 6, 7, SKIN); p(5, 7, 5, 1, SKIN_D); p(5, 2, 1, 4, C.hair);
+  p(8, 4, 2, 2, '#fff'); p(9, 4, 1, 2, '#1a1a1a'); p(10, 6, 1, 1, '#f3a58e'); p(8, 6, 2, 1, '#c0392b');
+  // crochet beanie and pom-pom
+  p(4, -1, 7, 3, C.hat); p(4, 1, 7, 1, shade(C.hat, -0.25)); p(5, -1, 1, 2, shade(C.hat, 0.3)); p(8, -1, 1, 2, shade(C.hat, 0.3));
+  p(6, -3, 3, 2, '#fff'); p(7, -3, 1, 1, '#eee');
+  // crochet hook in her hand
+  p(10, 10, 2, 2, SKIN); p(12, 7, 1, 5, '#ff8ad8'); p(13, 7, 1, 1, '#ff8ad8'); p(12, 11, 1, 1, '#c2185b');
+  if (muzzle) { glow(f > 0 ? x + 15 : x - 1, y + 8, 5, '#ff8ad8'); p(14, 6, 1, 1, '#fff'); p(15, 9, 1, 1, '#ff8ad8'); }
+}
+// Grandpa: a straw cowboy hat, white hair and mustache, a plaid flannel shirt,
+// work boots, and the old acoustic guitar he swings like a baseball bat.
+const GRANDPA_PAL = [
+  { shirt: '#c0392b', plaid: '#5a1010', hat: '#d9b36c', pants: '#3a5a9a' },
+  { shirt: '#2e7d32', plaid: '#123d14', hat: '#8b5a2b', pants: '#4a3b2a' },
+  { shirt: '#1d5fd8', plaid: '#0d2a66', hat: '#eeeeee', pants: '#333333' },
+  { shirt: '#e67e22', plaid: '#7a3a0a', hat: '#5a3a1a', pants: '#2c3e50' },
+];
+function drawAcoustic(p, x, y) { // a little acoustic guitar laid sideways, body at (x, y)
+  p(x, y, 6, 5, '#d18b47'); p(x, y, 6, 1, '#e8a868'); p(x, y + 4, 6, 1, '#9a5a22'); p(x + 2, y + 1, 2, 2, '#2b1a0a');
+  p(x + 6, y + 2, 5, 1, '#6b3e1f'); p(x + 11, y + 1, 2, 3, '#3a2a1a');
+}
+function drawGrandpa(x, y, f, anim, moving, air, muzzle, v = 0) {
+  const p = px(x, y, 14, f), fr = moving ? Math.floor(anim * 10) % 4 : 0, C = GRANDPA_PAL[v % 4];
+  legs(p, fr, air, C.pants, '#6b3e1f');
+  // flannel shirt
+  p(3, 8, 8, 7, C.shirt); p(5, 8, 1, 7, C.plaid); p(8, 8, 1, 7, C.plaid); p(3, 10, 8, 1, C.plaid); p(3, 12, 8, 1, C.plaid);
+  p(3, 8, 1, 7, shade(C.shirt, -0.35)); p(3, 14, 8, 1, '#3a2a1a'); p(7, 14, 2, 1, '#c0c0c0');
+  // face: white hair, eyebrows, mustache
+  p(4, 1, 7, 7, SKIN); p(4, 4, 1, 3, SKIN_D); p(5, 7, 5, 1, SKIN_D);
+  p(4, 2, 1, 4, '#e8e8e8'); p(5, 2, 1, 2, '#e8e8e8');
+  p(8, 3, 3, 1, '#e8e8e8'); p(9, 4, 1, 1, '#1a1a1a'); p(10, 5, 1, 1, SKIN_D);
+  p(7, 6, 4, 1, '#f5f5f5'); p(8, 7, 2, 1, '#f5f5f5');
+  // cowboy hat
+  p(2, 1, 11, 1, C.hat); p(4, -2, 7, 3, C.hat); p(4, 0, 7, 1, '#5a3a1a'); p(6, -2, 3, 1, shade(C.hat, -0.2)); p(2, 1, 11, 1, C.hat);
+  if (muzzle) { // mid-swing: the guitar out in front
+    p(8, 9, 2, 2, SKIN); p(10, 9, 3, 1, '#6b3e1f'); p(12, 6, 5, 6, '#d18b47'); p(12, 6, 5, 1, '#e8a868'); p(13, 8, 2, 2, '#2b1a0a');
+    glow(f > 0 ? x + 18 : x - 4, y + 9, 7, '#ffd34d', 0.3);
+  } else { drawAcoustic(p, 2, 9); p(6, 9, 2, 2, SKIN); p(10, 10, 2, 2, SKIN); }
+}
+// Grandma: silver hair in a bun, glasses, a soft cardigan and an apron with a big heart.
+const GRANDMA_PAL = [
+  { top: '#ff8ab3', skirt: '#7e57c2', apron: '#ffffff' },
+  { top: '#7dd3ff', skirt: '#2c3e50', apron: '#fff3d6' },
+  { top: '#b6ff6e', skirt: '#8b5a2b', apron: '#ffffff' },
+  { top: '#ffd34d', skirt: '#c0392b', apron: '#ffffff' },
+];
+function drawGrandma(x, y, f, anim, moving, air, muzzle, v = 0) {
+  const p = px(x, y, 14, f), fr = moving ? Math.floor(anim * 10) % 4 : 0, C = GRANDMA_PAL[v % 4];
+  legs(p, fr, air, '#e8c4b0', '#6b3e1f');
+  p(3, 8, 8, 6, C.top); p(3, 8, 1, 6, shade(C.top, -0.3)); p(4, 8, 6, 1, shade(C.top, 0.25));
+  p(5, 9, 5, 5, C.apron); p(6, 10, 1, 1, '#e63946'); p(8, 10, 1, 1, '#e63946'); p(6, 11, 3, 1, '#e63946'); p(7, 12, 1, 1, '#e63946');
+  p(2, 13, 10, 3, C.skirt); p(2, 15, 10, 1, shade(C.skirt, -0.3));
+  // face, silver hair and bun
+  p(4, 1, 7, 7, SKIN); p(5, 7, 5, 1, SKIN_D);
+  p(4, 0, 7, 2, '#e0e0e0'); p(3, 1, 2, 5, '#e0e0e0'); p(1, 0, 3, 3, '#e0e0e0'); p(1, 0, 1, 3, '#b8b8b8'); p(6, 0, 3, 1, '#fff');
+  // round glasses
+  p(7, 3, 2, 2, '#b8860b'); p(10, 3, 2, 2, '#b8860b'); p(9, 3, 1, 1, '#b8860b'); p(8, 4, 1, 1, '#1a1a1a'); p(11, 4, 1, 1, '#1a1a1a');
+  p(8, 6, 2, 1, '#c0392b'); p(10, 6, 1, 1, '#ff9aa2');
+  // hands held out with a little heart
+  p(10, 10, 2, 2, SKIN); p(12, 8, 1, 1, '#ff3b5c'); p(14, 8, 1, 1, '#ff3b5c'); p(12, 9, 3, 1, '#ff3b5c'); p(13, 10, 1, 1, '#ff3b5c');
+  if (muzzle) glow(f > 0 ? x + 15 : x - 1, y + 9, 7, '#ff8ab3', 0.45);
+}
+const AMIGU_LOOK = [ // Allison's crocheted plushies: color + what sticks out
+  { c: '#ffb6d9', bit: 'ears' }, { c: '#7dd36b', bit: 'eyes' }, { c: '#c79bff', bit: 'legs' },
+  { c: '#ffd34d', bit: 'stripes' }, { c: '#6fb6ff', bit: 'tail' }, { c: '#ff9a4a', bit: 'spikes' },
+];
+function drawAmigurumi(x, y, look, s = 1) { // about 10x10 at s = 1
+  const L = AMIGU_LOOK[look % 6], c = L.c, d = shade(c, -0.3);
+  const q = (a, b, w, h, col) => R(x + a * s, y + b * s, w * s, h * s, col);
+  if (L.bit === 'ears') { q(2, -3, 2, 4, c); q(6, -3, 2, 4, c); q(2.5, -2, 1, 2, '#ff8ad8'); q(6.5, -2, 1, 2, '#ff8ad8'); }
+  if (L.bit === 'eyes') { q(1, -1, 3, 3, c); q(6, -1, 3, 3, c); }
+  if (L.bit === 'legs') for (let i = 0; i < 4; i++) q(1 + i * 2, 8, 1, 3, d);
+  if (L.bit === 'tail') { q(-3, 3, 3, 2, c); q(-4, 2, 2, 1, c); q(-4, 5, 2, 1, c); }
+  if (L.bit === 'spikes') { q(3, -1, 1, 1, '#2e9e44'); q(5, -2, 1, 2, '#2e9e44'); q(7, -1, 1, 1, '#2e9e44'); }
+  q(0, 1, 10, 8, c); q(1, 0, 8, 10, c); q(0, 4, 10, 1, d); q(0, 7, 10, 1, d); q(2, 1, 3, 1, shade(c, 0.35));
+  if (L.bit === 'stripes') { q(0, 4, 10, 2, '#1a1a1a'); q(3, 0, 3, 2, '#fff'); }
+  if (L.bit === 'eyes') { q(2, 0, 1, 1, '#1a1a1a'); q(7, 0, 1, 1, '#1a1a1a'); } else { q(3, 3, 1, 1, '#1a1a1a'); q(6, 3, 1, 1, '#1a1a1a'); }
+  q(4, 5, 2, 1, '#c0392b');
+}
+function drawLatte(x, y, s = 1) {
+  const q = (a, b, w, h, c) => R(x + a * s, y + b * s, w * s, h * s, c);
+  q(1, 0, 8, 2, '#ddd'); q(4, -1, 2, 1, '#ddd'); q(1, 2, 8, 8, '#fff'); q(1, 4, 8, 3, '#8b5a2b'); q(4, 5, 2, 1, '#ffd34d'); q(2, 2, 1, 8, '#eee');
+}
+function drawYarnBall(x, y, r, c, spin = 0) {
+  circle(x, y, r, c); ctx.save(); ctx.strokeStyle = SIL || shade(c, -0.3); ctx.lineWidth = 1;
+  for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.ellipse(x, y, r * 0.9, r * (0.3 + i * 0.25), spin + i, 0, Math.PI * 2); ctx.stroke(); }
+  ctx.restore();
+}
+function drawCookie(x, y, s = 1) {
+  circle(x + 5 * s, y + 5 * s, 4.5 * s, '#d9a066'); circle(x + 5 * s, y + 5 * s, 3.5 * s, '#e8b878');
+  R(x + 3 * s, y + 3 * s, s, s, '#4a2c16'); R(x + 6 * s, y + 4 * s, s, s, '#4a2c16'); R(x + 4 * s, y + 7 * s, s, s, '#4a2c16');
+}
+function drawMiniGuitar(x, y, s = 1) {
+  circle(x + 3 * s, y + 7 * s, 3 * s, '#d18b47'); circle(x + 3 * s, y + 4 * s, 2.2 * s, '#d18b47'); circle(x + 3 * s, y + 6 * s, s, '#2b1a0a');
+  R(x + 2.5 * s, y - 2 * s, s, 5 * s, '#6b3e1f'); R(x + 2 * s, y - 3 * s, 2 * s, 2 * s, '#3a2a1a');
+}
+function drawAmmoIcon(hero, x, y, s) {
+  if (hero === 'noah') drawTeddy(x, y, s); else if (hero === 'elijah') drawCrystal(x, y, s);
+  else if (hero === 'aj') drawLatte(x, y + 1, s * 0.9);
+  else if (hero === 'allison') drawYarnBall(x + 4 * s, y + 4 * s, 4 * s, '#ff8ad8');
+  else if (hero === 'grandpa') drawMiniGuitar(x + 1, y + 2, s);
+  else if (hero === 'grandma') drawCookie(x, y, s);
+  else drawPick(x, y + 1, s);
+}
+const HERO_DRAW = { noah: drawNoah, elijah: drawElijah, andrew: drawAndrew, aj: drawAJ, allison: drawAllison, grandpa: drawGrandpa, grandma: drawGrandma };
 function drawHero(hero, x, y, f, anim, moving, air, muzzle, v = 0) {
-  if (hero === 'andrew') { outlined(() => drawAndrew(x, y, f, anim, moving, air, muzzle, v)); return; }
-  outlined(() => (hero === 'noah' ? drawNoah : drawElijah)(x, y, f, anim, moving, air, muzzle, v));
+  const fn = HERO_DRAW[hero] || drawNoah;
+  outlined(() => fn(x, y, f, anim, moving, air, muzzle, v));
 }
 function drawPerson(x, y, f, look, anim, moving, air) {
   outlined(() => {
@@ -2447,6 +2886,11 @@ function drawWorld() {
     if (e.type !== 'jet') groundShadow(e.x + e.w / 2, e.y + e.h, e.w);
     drawBot(e.type, Math.round(e.x), Math.round(e.y), e.facing, e.anim, e.flash > 0, Math.abs(e.vx) > 1, e.state);
     if (e.state === 'alert') { R(Math.round(e.cx) - 1, Math.round(e.y) - 14, 3, 7, '#ffeb3b'); R(Math.round(e.cx) - 1, Math.round(e.y) - 6, 3, 2, '#ffeb3b'); }
+    if (e.state === 'sleep') { // snoozing robot
+      const k = (gtime * 0.8 + e.x * 0.01) % 1;
+      ctx.globalAlpha = 1 - k; text('z', Math.round(e.cx + 3 + k * 6), Math.round(e.y - 4 - k * 10), { size: 5, color: '#bfe3ff' });
+      ctx.globalAlpha = 1; text('Z', Math.round(e.cx + 7), Math.round(e.y - 12), { size: 4, color: '#bfe3ff' });
+    }
   }
   if (boss && boss.alive) drawBoss(boss);
   for (const p of players) {
@@ -2475,6 +2919,17 @@ function drawWorld() {
     ctx.save(); ctx.translate(Math.round(g.x + 4), Math.round(g.y + 4)); ctx.rotate(g.spin);
     if (g.kind === 'teddy') { if (g.mini) drawTeddy(-3, -3, 0.6); else drawTeddy(-5, -5); }
     else if (g.kind === 'rollbear') outlined(() => drawTeddy(-10, -10, 2));
+    else if (g.kind === 'amigu') outlined(() => drawAmigurumi(-5, -5, g.look || 0));
+    else if (g.kind === 'yarnball') outlined(() => drawYarnBall(3, 3, 8, '#ff8ad8', g.spin));
+    else if (g.kind === 'latte') outlined(() => drawLatte(-5, -5));
+    else if (g.kind === 'gift') { ctx.rotate(-g.spin); outlined(() => { R(-6, -6, 12, 12, '#e63946'); R(-1, -6, 2, 12, '#ffd34d'); R(-6, -1, 12, 2, '#ffd34d'); R(-4, -9, 3, 3, '#ffd34d'); R(1, -9, 3, 3, '#ffd34d'); R(-5, -5, 3, 1, '#ff8a8a'); }); }
+    else if (g.kind === 'limo') { ctx.rotate(-g.spin); const d = g.vx < 0 ? -1 : 1; ctx.scale(d, 1); outlined(() => {
+      R(-4, -2, 34, 8, '#e0b030'); R(4, -7, 20, 6, '#e0b030'); R(6, -6, 7, 4, '#3a4a6a'); R(15, -6, 7, 4, '#3a4a6a'); R(-4, -2, 34, 1, '#fff3b0');
+      R(28, 0, 2, 2, '#fff'); R(-4, 1, 2, 2, '#e63946'); circle(3, 7, 3, '#222'); circle(23, 7, 3, '#222'); circle(3, 7, 1, '#aaa'); circle(23, 7, 1, '#aaa');
+      R(10, -9, 8, 2, '#ffd34d'); }); ctx.scale(d, 1); }
+    else if (g.kind === 'bigguitar') { ctx.rotate(-g.spin + 0.5); outlined(() => {
+      circle(6, 14, 10, '#d18b47'); circle(6, 2, 8, '#d18b47'); circle(6, 8, 4, '#2b1a0a'); R(4, -30, 4, 26, '#6b3e1f'); R(2, -38, 8, 9, '#3a2a1a');
+      R(5, -30, 1, 46, '#eee'); R(7, -30, 1, 46, '#eee'); R(1, 18, 10, 2, '#5a3618'); }); }
     else if (g.kind === 'amp') { ctx.rotate(-g.spin); outlined(() => { R(-6, -7, 12, 14, '#222'); R(-5, -6, 10, 9, '#444'); R(-4, -5, 8, 7, '#333'); circle(0, -1, 3, '#555'); R(-5, 4, 10, 2, '#ffd34d'); R(-4, 4, 3, 1, '#111'); }); }
     else drawCrystal(-5, -5);
     ctx.restore();
@@ -2496,6 +2951,34 @@ function drawWorld() {
       const c = ['#ff7b54', '#ffd34d', '#6fb6ff', '#ff8ad8', '#7dffa0'][Math.abs(Math.floor(b.x / 9)) % 5], wy = y + Math.round(Math.sin(b.x * 0.15) * 2);
       glow(x, wy, 5, c, 0.3); R(x - 2, wy, 3, 2, c); R(x, wy - 5, 1, 6, c); R(x, wy - 5, 3, 1, c);
     }
+    else if (b.kind === 'card') { // a spinning gold card
+      const w = Math.max(1, Math.round(Math.abs(Math.cos(gtime * 22 + b.x * 0.1)) * 7));
+      glow(x, y, 5, '#ffd34d', 0.3); R(x - w / 2, y - 3, w, 6, '#ffd34d'); if (w > 3) { R(x - w / 2, y - 1, w, 1, '#b8860b'); R(x - w / 2 + 1, y - 3, 1, 1, '#fff'); }
+    }
+    else if (b.kind === 'hook' || b.kind === 'needle') {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(b.kind === 'hook' ? gtime * 18 : Math.atan2(b.vy, b.vx));
+      if (b.kind === 'hook') { R(-4, -0.5, 8, 1.5, '#ff8ad8'); R(3, -2, 1.5, 2, '#ff8ad8'); R(-4, -1, 2, 2.5, '#c2185b'); }
+      else { R(-6, -0.5, 12, 1, '#e8e8e8'); R(5, -0.5, 2, 1, '#fff'); circle(-6, 0, 1.5, YARN[Math.abs(Math.floor(b.y)) % 6]); }
+      ctx.restore();
+    }
+    else if (b.kind === 'swing') { // the whoosh of Grandpa's guitar swing
+      ctx.save(); ctx.globalAlpha = 0.85; ctx.lineWidth = 3; ctx.strokeStyle = '#fff';
+      const a0 = d > 0 ? -Math.PI / 2 : Math.PI / 2;
+      ctx.beginPath(); ctx.arc(x - d * 6, y, 11, a0 - 0.2 * d, a0 + Math.PI * d * 0.9, d < 0); ctx.stroke();
+      ctx.lineWidth = 1; ctx.strokeStyle = '#ffd34d'; ctx.beginPath(); ctx.arc(x - d * 6, y, 14, a0, a0 + Math.PI * d * 0.8, d < 0); ctx.stroke();
+      ctx.restore();
+    }
+    else if (b.kind === 'string') { // a twanging guitar string
+      ctx.save(); ctx.strokeStyle = '#fff3b0'; ctx.lineWidth = 1; ctx.beginPath();
+      for (let i = 0; i <= 14; i++) { const xx = x - d * i, yy = y + Math.sin(i * 1.3 + gtime * 40) * (2 - i / 10); if (i) ctx.lineTo(xx, yy); else ctx.moveTo(xx, yy); }
+      ctx.stroke(); ctx.restore(); glow(x, y, 5, '#e0a060', 0.3);
+    }
+    else if (b.kind === 'quake') { // a ground shockwave
+      for (let i = 0; i < 4; i++) { const h = 4 + ((i + Math.floor(gtime * 20)) % 3) * 3; R(x - d * i * 4 - 1, y + 5 - h, 3, h, i % 2 ? '#c9a227' : '#8b5a2b'); }
+      glow(x, y, 8, '#ffd34d', 0.3);
+    }
+    else if (b.kind === 'gboom') { ctx.save(); ctx.translate(x, y); ctx.rotate(gtime * 16); outlined(() => drawMiniGuitar(-3, -4, 1.3)); ctx.restore(); }
+    else if (b.kind === 'lheart') { glow(x, y, 7, '#ff6b9b', 0.4); const s2 = 1 + 0.15 * Math.sin(gtime * 14); heart(x - 3 * s2, y - 3 * s2, '#ff3b5c', 1.1 * s2); R(x - 2, y - 2, 1, 1, '#fff'); }
     else if (b.kind === 'wave') { ctx.globalAlpha = 0.8; for (let i = 0; i < 3; i++) R(x - 3 + i * 2 * d, y - 4 - i * 2, 3, 10 - i, i === 0 ? '#a8d0ff' : '#4a90e2'); ctx.globalAlpha = 1; }
   }
   for (const n of nukes) drawNuke(n);
@@ -2508,11 +2991,12 @@ function drawWorld() {
       ctx.restore(); glow(e.x, e.y, rr, '#ff7b54', 0.25 * (1 - k));
       continue;
     }
-    const kg = e.t / e.max; glow(e.x, e.y, e.r * (1.4 + kg), e.color === 'nuke' ? '#b6ff6e' : '#ff9a30', 0.5 * (1 - kg));
+    const EXC = { nuke: ['#b6ff6e', '#b6ff6e', '#ffd34d'], love: ['#ff8ab3', '#ff6b9b', '#ffd6e7'], yarn: ['#ff8ad8', '#c79bff', '#7dd3ff'] }[e.color] || ['#ff9a30', '#ff8c1a', '#ffd34d'];
+    const kg = e.t / e.max; glow(e.x, e.y, e.r * (1.4 + kg), EXC[0], 0.5 * (1 - kg));
     const k = e.t / e.max, rr = e.r * (0.35 + 0.75 * Math.min(1, k * 3));
     ctx.globalAlpha = 1 - k;
-    circle(e.x, e.y, rr, e.color === 'nuke' ? '#b6ff6e' : '#ff8c1a');
-    circle(e.x, e.y, rr * 0.7, '#ffd34d');
+    circle(e.x, e.y, rr, EXC[1]);
+    circle(e.x, e.y, rr * 0.7, EXC[2]);
     if (k < 0.5) circle(e.x, e.y, rr * 0.4, '#fff');
     ctx.globalAlpha = 1;
   }
@@ -2526,6 +3010,13 @@ function drawWorld() {
       case 'heart': heart(p.x - 3, p.y - 3, p.color, 1); break;
       case 'note': R(p.x - 2, p.y, 3, 2, p.color); R(p.x, p.y - 4, 1, 5, p.color); R(p.x, p.y - 4, 2, 1, p.color); break;
       case 'dove': ctx.globalAlpha = 1; drawDove(p.x, p.y, gtime); break;
+      case 'yarn': R(p.x - 3, p.y, 2, 1, p.color); R(p.x - 1, p.y - 1, 2, 1, p.color); R(p.x + 1, p.y, 2, 1, p.color); R(p.x + 3, p.y + 1, 1, 1, p.color); break;
+      case 'puppy': { // a happy puppy floating off on a heart balloon
+        const x = Math.round(p.x), y = Math.round(p.y), c = p.color, cd = shade(c, -0.35), wag = Math.floor(gtime * 10) % 2;
+        R(x, y - 13, 1, 7, '#eee'); heart(x - 3, y - 20, '#ff3b5c', 1.1);
+        R(x - 4, y - 6, 8, 4, c); R(x + 2, y - 9, 5, 4, c); R(x + 2, y - 9, 1, 4, cd); R(x + 5, y - 8, 1, 1, '#111'); R(x + 6, y - 7, 1, 1, '#111'); R(x + 6, y - 6, 1, 1, '#ff8ab3');
+        R(x - 6, y - 7 - wag, 2, 1, c); R(x - 3, y - 2, 1, 2, cd); R(x + 2, y - 2, 1, 2, cd); break;
+      }
       default: R(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size, p.color);
     }
   }
@@ -2622,7 +3113,7 @@ function drawHUD() {
   text('LIVES ' + lives, cx, 5, { size: 6, color: '#fff', align: 'center' });
   text(String(score).padStart(7, '0'), cx, 14, { size: 6, color: '#ffd34d', align: 'center' });
   if (NET.code) text('ONLINE: ' + NET.code, cx, 24, { size: 4, color: '#7dffa0', align: 'center' });
-  else if (players.length === 1) text('R: SWAP BROTHER', cx, 24, { size: 4, color: '#bbb', align: 'center' });
+  else if (players.length === 1) text('R: SWAP HERO', cx, 24, { size: 4, color: '#bbb', align: 'center' });
   if (boss && boss.alive && boss.state !== 'sleep') {
     R(VW / 2 - 101, 38, 202, 8, '#000'); R(VW / 2 - 100, 39, 200 * boss.hp / boss.maxHp, 6, '#e63946');
     text('MEGA GRUMP 9000', VW / 2, 48, { size: 5, color: '#ff8a8a', align: 'center' });
@@ -2638,7 +3129,14 @@ function drawBanner() {
 }
 function drawTouch() {
   if (!touch.used || state !== 'play') return;
-  const labels = { left: '<', right: '>', up: 'JUMP', fire: 'FIRE', special: 'BOMB', swap: 'SWAP' };
+  // the joystick: where the thumb is, or a faint hint of where to put it
+  const on = stick.id !== null, sx = on ? stick.ox : stick.homeX, sy = on ? stick.oy : stick.homeY;
+  ctx.globalAlpha = on ? 0.3 : 0.14; circle(sx, sy, STICK_R + 6, '#fff');
+  ctx.globalAlpha = on ? 0.55 : 0.25; circle(sx + stick.dx * STICK_R, sy + stick.dy * STICK_R, 11, '#fff');
+  ctx.globalAlpha = 0.8;
+  if (touch.up) text('JUMP', sx, sy - STICK_R - 14, { size: 5, color: '#fff', align: 'center' });
+  if (!on) text('MOVE + JUMP', sx, sy + STICK_R + 10, { size: 4, color: '#fff', align: 'center' });
+  const labels = { fire: 'FIRE', special: 'BOMB', swap: 'SWAP' };
   for (const b of TBTN) {
     if (b.k === 'swap' && players.length !== 1) continue;
     ctx.globalAlpha = touch[b.k] ? 0.55 : 0.28; circle(b.x, b.y, b.r, '#fff'); ctx.globalAlpha = 0.9;
@@ -2916,7 +3414,7 @@ const INTERNET_RELAYS = RELAY_OVERRIDE ? [RELAY_OVERRIDE] : [
   'wss://boom-brothers-relay.andrewsaulls.workers.dev',
   'wss://race-track-mayhem-relay.andrewsaulls.workers.dev',
 ];
-const GAME_TAG = 'BoomBrothers', NET_VERSION = 2; // bump when screens on different versions can't play together
+const GAME_TAG = 'BoomBrothers', NET_VERSION = 3; // bump when screens on different versions can't play together
 const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I or O (same as the relay's codes)
 const SNAP_RATE = 1 / 20;
 const NET = {
@@ -2928,7 +3426,7 @@ const NET = {
 };
 function r1(v) { return Math.round(v * 10) / 10; }
 function r2(v) { return Math.round(v * 100) / 100; }
-const IN_KEYS = [...ACTIONS, 'join', 'start'];
+const IN_KEYS = [...ACTIONS, 'join', 'start', 'auto'];
 function toMask(st) { let m = 0; IN_KEYS.forEach((k, i) => { if (st[k]) m |= 1 << i; }); return m; }
 function fromMask(m) { const st = {}; IN_KEYS.forEach((k, i) => { st[k] = !!(m & (1 << i)); }); return st; }
 function isLocalDev(dev) { return NET.role === 'client' ? dev.startsWith('net:' + NET.myId + ':') : !dev.startsWith('net:'); }
@@ -3074,7 +3572,7 @@ function makeSnap() {
   s.en = enemies.filter(vis).map(e => [e.type, r1(e.x), r1(e.y), r1(e.vx), e.facing, e.state, e.flash > 0 ? 1 : 0, r1(e.anim)]);
   s.bo = boss ? [r1(boss.x), r1(boss.y), boss.hp, boss.maxHp, boss.state, boss.facing, boss.flash > 0 ? 1 : 0, r1(boss.anim), boss.alive ? 1 : 0] : null;
   s.pr = projectiles.filter(vis).map(b => [b.kind, r1(b.x), r1(b.y), r1(b.vx), r1(b.vy)]);
-  s.gr = grenades.map(g => [g.kind, r1(g.x), r1(g.y), r1(g.spin)]);
+  s.gr = grenades.map(g => [g.kind, r1(g.x), r1(g.y), r1(g.spin), g.look || 0, r1(g.vx)]);
   s.pk = pickups.filter(vis).map(p => [p.kind, r1(p.x), r1(p.y), r1(p.t)]);
   s.cg = cages.map(c => [r1(c.x), r1(c.y), c.freed ? 1 : 0, c.look]);
   s.cr = crosses.map(c => (c.active ? 1 : 0));
@@ -3117,7 +3615,7 @@ function applySnap(s) {
   enemies = s.en.map(a => centered({ type: a[0], x: a[1], y: a[2], vx: a[3], facing: a[4], state: a[5], flash: a[6] ? 1 : 0, anim: a[7], w: ENEMY_STATS[a[0]].w, h: ENEMY_STATS[a[0]].h, alive: true }));
   boss = s.bo ? centered({ x: s.bo[0], y: s.bo[1], hp: s.bo[2], maxHp: s.bo[3], state: s.bo[4], facing: s.bo[5], flash: s.bo[6] ? 1 : 0, anim: s.bo[7], alive: !!s.bo[8], w: 44, h: 56 }) : null;
   projectiles = s.pr.map(a => ({ kind: a[0], x: a[1], y: a[2], vx: a[3], vy: a[4] }));
-  grenades = s.gr.map(a => ({ kind: a[0], x: a[1], y: a[2], spin: a[3] }));
+  grenades = s.gr.map(a => ({ kind: a[0], x: a[1], y: a[2], spin: a[3], look: a[4], vx: a[5] }));
   pickups = s.pk.map(a => ({ kind: a[0], x: a[1], y: a[2], t: a[3] }));
   cages = s.cg.map(a => ({ x: a[0], y: a[1], w: 16, h: 20, freed: !!a[2], look: a[3] }));
   s.cr.forEach((a, i) => { if (crosses[i]) crosses[i].active = !!a; });
