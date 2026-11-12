@@ -1,0 +1,68 @@
+# One-time backup of the Android signing key.
+#
+# The key that signs BoomBrothers-android.apk lives in this repository's Actions cache.
+# If that cache were ever cleared, the next build would make a new key and every phone would
+# have to uninstall the game (losing its saved progress) before it could update.
+#
+# Run this once (Actions > Back up the Android key > Run workflow). It packs the key into a
+# download called "android-signing-key" on the run's page, which is kept for 1 day. Then:
+#   1. Download and unzip it. Open android-keystore-base64.txt and copy everything in it.
+#   2. Settings > Secrets and variables > Actions > New repository secret, three times:
+#        ANDROID_KEYSTORE_BASE64    the text you copied
+#        ANDROID_KEYSTORE_ALIAS     boombrothers
+#        ANDROID_KEYSTORE_PASSWORD  boombrothers
+#   3. Delete the downloaded files (or keep the .keystore somewhere safe, like a password manager).
+# From then on every build signs with the key from the secrets: the very same key, so phones
+# keep updating normally, and the cache no longer matters.
+name: Back up the Android key
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the signing key from the cache
+        id: key
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/android-key
+          key: android-signing-key-v1
+
+      - name: Pack it up
+        run: |
+          set -e
+          KS=~/android-key/release.keystore
+          if [ "${{ steps.key.outputs.cache-hit }}" != "true" ] || [ ! -f "$KS" ]; then
+            echo "::error::No cached signing key found. If the ANDROID_KEYSTORE_* secrets are already set, the key is already backed up."
+            exit 1
+          fi
+          mkdir -p backup
+          cp "$KS" backup/boombrothers-release.keystore
+          base64 -w0 "$KS" > backup/android-keystore-base64.txt
+          keytool -list -v -keystore "$KS" -storepass boombrothers | grep -E "Alias name|SHA256:" | tee backup/fingerprint.txt
+          {
+            echo "## Android signing key packed"
+            echo ""
+            echo "Download **android-signing-key** below (kept for 1 day), then add these repository secrets"
+            echo "(Settings > Secrets and variables > Actions):"
+            echo ""
+            echo "| Secret | Value |"
+            echo "|---|---|"
+            echo "| ANDROID_KEYSTORE_BASE64 | everything in android-keystore-base64.txt |"
+            echo "| ANDROID_KEYSTORE_ALIAS | boombrothers |"
+            echo "| ANDROID_KEYSTORE_PASSWORD | boombrothers |"
+            echo ""
+            echo "The next Android build's log should then say \"Using the signing key from the repository secrets\""
+            echo "and show the same certificate SHA-256 as before."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-signing-key
+          path: backup/
+          retention-days: 1

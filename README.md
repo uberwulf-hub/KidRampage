@@ -46,9 +46,12 @@ open the release page on the phone, download the .apk and open it (allow "instal
 The back button pauses the game or goes back in the menus. Online play works with a room code.
 
 The app lives in `android/` (a WebView that loads the same `index.html` and `game.js`), and
-`.github/workflows/android.yml` builds and signs it. To keep the signing key safe for good, add the
-`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_ALIAS` and `ANDROID_KEYSTORE_PASSWORD` secrets (the same setup as
-Race Track Mayhem); otherwise a key is made on the first release build and kept in the Actions cache.
+`.github/workflows/android.yml` builds and signs it. The signing key was made by the first release build and is
+kept in the Actions cache. To back it up for good, run **Actions > Back up the Android key** once, download the
+`android-signing-key` file from that run (it's kept for 1 day), and add three repository secrets
+(Settings > Secrets and variables > Actions): `ANDROID_KEYSTORE_BASE64` (everything in
+`android-keystore-base64.txt`), `ANDROID_KEYSTORE_ALIAS` (`boombrothers`) and `ANDROID_KEYSTORE_PASSWORD`
+(`boombrothers`). It's the same key, so phones keep updating normally.
 
 ## Playing online (each player on their own screen)
 
@@ -85,7 +88,8 @@ the family, steals the plushies and takes every firework to power his **Fun-Canc
 1. **Grumbot Valley**: bust the family out of their cages in the desert.
 2. **Uranium Mines**: stop the drills digging uranium for the ray (Elijah's specialty).
 3. **Plushie Factory**: free the stolen plushies, even the turtle from the science center (Noah to the rescue).
-4. **Liberty Fortress**: Dad hacks the gate (`sudo open fortress`), then beat MEGA GRUMP before midnight.
+4. **Fireworks Warehouse**: the freed family joins in to take back the stolen fireworks before the Grumbots truck them away.
+5. **Liberty Fortress**: Dad hacks the gate (`sudo open fortress`), then beat MEGA GRUMP before midnight.
 
 The ending: the ray backfires into the biggest fireworks show ever, Noah hands MEGA GRUMP a teddy bear, and he smiles
 for the very first time. He was just lonely, so everyone invites him to the cookout. A short story chapter plays before
@@ -94,7 +98,7 @@ each level (`STORY` in `game.js`).
 ## The heroes
 
 Every hero's **fire** (Q) and **special** (E) power up each level: level 1 starts simple, and by level 4 each move
-has turned into something new. The level card shows everyone's new moves, and the HUD shows each hero's level.
+has turned into something new (level 5 keeps the level 4 moves). The level card shows everyone's new moves, and the HUD shows each hero's level.
 
 | Level | **Noah** (exploding things, plushies) | **Elijah** (uranium, atomics) | **Andrew** (running, BJJ, sysadmin, guitar, drums) |
 |---|---|---|---|
@@ -132,7 +136,12 @@ Pick a hero with left/right on the join screen; playing alone, press **R** to sw
 1. Grumbot Valley (eagle ending)
 2. Uranium Mines (teddy rocket ending)
 3. Plushie Factory (family dance party)
-4. Liberty Fortress: boss fight with **MEGA GRUMP 9000**
+4. Fireworks Warehouse: shelves and a giant pyramid of firework crates that go off in a chain (the show is back on!)
+5. Liberty Fortress: boss fight with **MEGA GRUMP 9000**
+
+**Difficulty** (on the title screen and in the pause menu): **Easy** gives 5 hearts, 3 extra lives, slower robot
+shots and a weaker MEGA GRUMP. **Hard** gives 2 fewer lives, faster robot shots and a tougher MEGA GRUMP.
+Normal is the classic game. The choice is remembered.
 
 ## Files
 
