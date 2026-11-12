@@ -204,8 +204,25 @@ function menuInput() {
 
 // ---------------------------------------------------------------- audio
 // ---- settings from the pause menu, remembered on this device
-const SETTINGS = { music: 8, sfx: 8, bg3d: true };
+const SETTINGS = { music: 8, sfx: 8, bg3d: true, diff: 'normal' };
 try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem('boombros_settings') || '{}')); } catch (e) { /* storage blocked */ }
+// Difficulty: Easy gives more hearts and lives and slower robot shots; Hard is the opposite.
+const DIFFS = {
+  easy:   { name: 'EASY',   color: '#5ee07a', hearts: 5, lives: 3,  fire: 1.6,  shot: 0.75, boss: 220, inv: 1.8 },
+  normal: { name: 'NORMAL', color: '#ffd34d', hearts: 3, lives: 0,  fire: 1,    shot: 1,    boss: 300, inv: 1.3 },
+  hard:   { name: 'HARD',   color: '#ff6b6b', hearts: 3, lives: -2, fire: 0.75, shot: 1.2,  boss: 380, inv: 1.1 },
+};
+const DIFF_ORDER = ['easy', 'normal', 'hard'];
+const D = () => DIFFS[SETTINGS.diff] || DIFFS.normal;
+function cycleDiff(step = 1) {
+  SETTINGS.diff = DIFF_ORDER[(DIFF_ORDER.indexOf(SETTINGS.diff) + step + 3) % 3] || 'normal';
+  saveSettings(); SFX.hit();
+  if (typeof players !== 'undefined') for (const p of players) { // takes effect right away, mid-level too
+    if (!p.maxHp) continue;
+    const add = D().hearts - p.maxHp;
+    p.maxHp = D().hearts; p.hp = clamp(p.hp + Math.max(0, add), 1, p.maxHp);
+  }
+}
 function saveSettings() { try { localStorage.setItem('boombros_settings', JSON.stringify(SETTINGS)); } catch (e) { /* storage blocked */ } }
 const musicVol = () => (muted ? 0 : clamp((AUDIO.music || {}).volume ?? 0.45, 0, 1) * SETTINGS.music / 10);
 function applyVolumes() {
@@ -536,6 +553,33 @@ const CHUNKS = {
     '....h...............',
     '...BBB......BB....r.',
     '..BBBBB..e.BBBB..e..', ...G3],
+  // the fireworks warehouse: shelves of firework crates, a big crate pyramid, and a loading dock
+  ware1: [E, E, E, E,
+    '....................',
+    '...FF........FFF....',
+    '..=======...=======.',
+    '....................',
+    '....e..........e....',
+    '..=======...=======.',
+    E, E, E,
+    '..e..FFF..C...FF..h.', ...G3],
+  ware2: [E, E, E, E, E, E, E,
+    '..............j.....',
+    '....................',
+    '.........FF.........',
+    '........FFFF....t...',
+    '.......FFFFFF..===..',
+    '..s....FFFFFF.......',
+    '..BB...FFFFFF....e..', ...G3],
+  ware3: [E, E, E, E, E, E,
+    '.....j..............',
+    '....................',
+    '...........C....u...',
+    '...........#########',
+    '...........#########',
+    '...h......##########',
+    '..BBBBB..###########',
+    '..BFFFB.e###########', ...G3],
   boss: [
     '................................', '................................', '................................',
     '................................', '................................', '................................',
@@ -557,6 +601,8 @@ const LEVELS = [
     chunks: ['start', 'mine1', 'mine2', 'pit', 'checkpoint', 'mine3', 'alley', 'mine1', 'mine2', 'end'] },
   { name: 'PLUSHIE FACTORY', tag: 'Free the stolen plushies (and the turtle)!', theme: 'factory',
     chunks: ['start', 'factory2', 'factory1', 'pit', 'checkpoint', 'alley', 'factory1', 'tower', 'factory2', 'cliff', 'end'] },
+  { name: 'FIREWORKS WAREHOUSE', tag: 'Take back the stolen fireworks!', theme: 'warehouse',
+    chunks: ['start', 'ware1', 'ware2', 'pit', 'checkpoint', 'ware3', 'alley', 'ware2', 'ware1', 'end'] },
   { name: 'LIBERTY FORTRESS', tag: 'Beat MEGA GRUMP before midnight!', theme: 'fortress',
     chunks: ['start', 'fort2', 'fort1', 'bunker', 'checkpoint', 'fort1', 'alley', 'fort2', 'boss'] },
 ];
@@ -565,6 +611,7 @@ const THEMES = {
   valley: { dirt: '#8b5a2b', dirt2: '#6e4420', grass: '#4caf50', grass2: '#2e7d32', brick: '#b5543c', brick2: '#7d3426', steel: '#8a98a6', steel2: '#56636f' },
   mine: { dirt: '#4a3b52', dirt2: '#352a3c', grass: null, brick: '#6a5a4a', brick2: '#3f342a', steel: '#6d7b88', steel2: '#3f4a55', ceiling: true },
   factory: { dirt: '#9c6b8e', dirt2: '#7a4f6e', grass: '#ff8ad8', grass2: '#d455a8', brick: '#c0607a', brick2: '#7e3049', steel: '#9aa5b5', steel2: '#5e6878' },
+  warehouse: { dirt: '#6f747c', dirt2: '#50545b', grass: '#e0b030', grass2: '#8a6a10', brick: '#a86a3a', brick2: '#6e4420', steel: '#8a98a6', steel2: '#56636f' },
   fortress: { dirt: '#6d5d4b', dirt2: '#4e4234', grass: '#5d8a3a', grass2: '#3c5f23', brick: '#8f8f9a', brick2: '#5a5a66', steel: '#7f8c99', steel2: '#4a5562' },
 };
 
@@ -897,7 +944,7 @@ function sudoZap(delay) { // Andrew's sysadmin move: zap every robot on the scre
 // ---------------------------------------------------------------- players
 class Player {
   constructor(idx, hero, x, y) {
-    Object.assign(this, { idx, hero, x, y, w: 10, h: 20, vx: 0, vy: 0, facing: 1, hp: 3, maxHp: 3, specials: 3, cool: 0, inv: 2,
+    Object.assign(this, { idx, hero, x, y, w: 10, h: 20, vx: 0, vy: 0, facing: 1, hp: D().hearts, maxHp: D().hearts, specials: 3, cool: 0, inv: 2,
       onGround: false, coyote: 0, jumpBuf: 0, airJumps: 1, holdJump: false, pound: 0, poundT: 0, dash: 0, drum: 0, drumN: 0, drumT: 0, alive: true, deadT: 0, anim: 0, shield: 0, prev: {}, climbing: false, muzzle: 0,
       waiting: false, ghostY: 0, carried: false, dropThrough: false, moving: false });
   }
@@ -1197,7 +1244,7 @@ class Player {
   }
   hurt(n, fromX) {
     if (!this.alive || this.inv > 0 || this.shield > 0 || state !== 'play') return;
-    this.hp -= n; this.inv = 1.3;
+    this.hp -= n; this.inv = D().inv;
     this.vx = sign(this.cx - fromX) * 160; this.vy = -160;
     SFX.hurt(); shake = Math.max(shake, 4);
     for (let i = 0; i < 6; i++) part(this.cx, this.cy, rand(-80, 80), rand(-120, -20), 0.6, pick(['#ff6b6b', '#fff', '#ffd34d']), 2, 400, 'star');
@@ -1297,8 +1344,8 @@ class Enemy {
       this.cool -= dt;
       if (this.cool <= 0 && tgt && sees && Math.hypot(tgt.cx - this.cx, tgt.cy - this.cy) < 230) {
         const a = Math.atan2(tgt.cy - this.cy, tgt.cx - this.cx);
-        projectiles.push({ kind: 'bolt', owner: 'enemy', x: this.cx, y: this.cy, vx: Math.cos(a) * 110, vy: Math.sin(a) * 110, life: 3, dmg: 1 });
-        this.cool = rand(1.6, 2.4); SFX.enemyShot();
+        projectiles.push({ kind: 'bolt', owner: 'enemy', x: this.cx, y: this.cy, vx: Math.cos(a) * 110 * D().shot, vy: Math.sin(a) * 110 * D().shot, life: 3, dmg: 1 });
+        this.cool = rand(1.6, 2.4) * D().fire; SFX.enemyShot();
       }
     }
     for (let i = 0; i < 1; i++) part(this.cx - this.facing * 3, this.y + this.h, rand(-10, 10), rand(30, 60), 0.2, pick(['#ffd34d', '#ff8c1a']), 2);
@@ -1306,11 +1353,11 @@ class Enemy {
   fire() {
     const gx = this.cx + this.facing * 9, gy = this.y + 9;
     if (this.type === 'heavy') {
-      projectiles.push({ kind: 'missile', owner: 'enemy', x: gx, y: this.y + 5, vx: this.facing * 120, vy: 0, life: 3, dmg: 1 });
-      this.cool = rand(2.2, 2.8);
+      projectiles.push({ kind: 'missile', owner: 'enemy', x: gx, y: this.y + 5, vx: this.facing * 120 * D().shot, vy: 0, life: 3, dmg: 1 });
+      this.cool = rand(2.2, 2.8) * D().fire;
     } else {
-      projectiles.push({ kind: 'bolt', owner: 'enemy', x: gx, y: gy, vx: this.facing * 140, vy: 0, life: 2.5, dmg: 1 });
-      this.cool = rand(1.2, 1.8);
+      projectiles.push({ kind: 'bolt', owner: 'enemy', x: gx, y: gy, vx: this.facing * 140 * D().shot, vy: 0, life: 2.5, dmg: 1 });
+      this.cool = rand(1.2, 1.8) * D().fire;
     }
     SFX.enemyShot();
   }
@@ -1340,7 +1387,7 @@ class Enemy {
 // ---------------------------------------------------------------- boss
 class Boss {
   constructor(cx, bottom) {
-    Object.assign(this, { w: 44, h: 56, x: cx - 22, y: bottom - 56, vx: 0, vy: 0, hp: 300, maxHp: 300, state: 'sleep', t: 0, facing: -1,
+    Object.assign(this, { w: 44, h: 56, x: cx - 22, y: bottom - 56, vx: 0, vy: 0, hp: D().boss, maxHp: D().boss, state: 'sleep', t: 0, facing: -1,
       flash: 0, alive: true, step: 0, shots: 0, shotT: 0, onGround: false, anim: 0, minX: cx - 380 });
   }
   get cx() { return this.x + this.w / 2; }
@@ -1724,7 +1771,7 @@ function updateCamera(dt, instant) {
 }
 
 // ---------------------------------------------------------------- game flow
-const startLives = () => START_LIVES + (party.length - 1) * 2;
+const startLives = () => START_LIVES + D().lives + (party.length - 1) * 2;
 const heroVariant = i => party.slice(0, i).filter(q => q.hero === party[i].hero).length;
 function startGame() {
   lives = startLives(); score = 0; rescuedAll = []; familyCounter = 0;
@@ -1777,7 +1824,7 @@ function updateWorld(dt) {
 }
 
 // ---------------------------------------------------------------- level-complete cutscenes
-const ENDINGS = ['eagle', 'bear', 'dance', 'final'];
+const ENDINGS = ['eagle', 'bear', 'dance', 'show', 'final'];
 function startCutscene() {
   state = 'cutscene'; stateT = 0;
   cut = { t: 0, ending: ENDINGS[levelIndex] || 'eagle', eagle: null, bear: null, fw: 0, summary: false, beat: 0 };
@@ -1796,7 +1843,7 @@ function updateCutscene(dt, m) {
   cut.t += dt; const t = cut.t;
   flag.raised = clamp(t / 1.6, 0, 1);
   cut.fw -= dt;
-  if (t > 0.8 && cut.fw <= 0) { cut.fw = cut.ending === 'final' ? 0.25 : 0.5; launchFirework(camX + rand(60, VW - 60), VH - 30); }
+  if (t > 0.8 && cut.fw <= 0) { cut.fw = cut.ending === 'final' ? 0.25 : cut.ending === 'show' ? 0.12 : 0.5; launchFirework(camX + rand(60, VW - 60), VH - 30); }
   const heroes = players.filter(p => p.alive);
   const gx = heroes.reduce((s, p) => s + p.cx, 0) / Math.max(1, heroes.length);
 
@@ -1836,6 +1883,16 @@ function updateCutscene(dt, m) {
         }
         heroes.forEach((p, i) => { p.x = b.x + 11 + (i - (heroes.length - 1) / 2) * 9; p.y = b.y - 18; p.facing = 1; });
         followers.forEach((f, i) => { f.x = b.x - 6 + (i % 4) * 12; f.y = b.y - 34 - Math.floor(i / 4) * 18; });
+      }
+    }
+  } else if (cut.ending === 'show') { // the fireworks are back: the family puts on the show right here
+    if (t > 1.6) {
+      if (!cut.shown) { cut.shown = true; setBanner('THE SHOW IS BACK ON!', '#ffd34d', 3.5, 'Every firework is back where it belongs!'); }
+      cut.beat -= dt;
+      if (cut.beat <= 0) {
+        cut.beat = 0.7;
+        [...heroes, ...followers].forEach((a, i) => { if (a.onGround) a.vy = -150 - (i % 3) * 30; a.facing = 1; });
+        launchFirework(camX + rand(80, VW - 80), VH - 30, pick([['#e63946', '#fff', '#1d5fd8'], ['#ffd34d', '#ff8c1a'], ['#ff8ad8', '#c79bff']]));
       }
     }
   } else if (cut.ending === 'dance') {
@@ -1919,6 +1976,7 @@ function pauseItems() {
     { id: 'restart', label: sure('restart') ? 'RESTART? PRESS AGAIN' : 'RESTART LEVEL' },
     { id: 'music', label: 'MUSIC', vol: true },
     { id: 'sfx', label: 'SOUND EFFECTS', vol: true },
+    { id: 'diff', label: 'DIFFICULTY: < ' + D().name + ' >' },
     { id: 'bg3d', label: '3D BACKGROUNDS: ' + (SHOW_3D ? 'ON' : 'OFF') },
     { id: 'controls', label: 'CONTROLS' },
     { id: 'quit', label: sure('quit') ? 'QUIT? PRESS AGAIN' : NET.role === 'host' ? 'END ONLINE GAME' : 'QUIT TO TITLE' },
@@ -1942,6 +2000,10 @@ function updatePause(m) {
     if (items[i].vol) dir = m.tap.x < VW / 2 + 55 ? -1 : 1; else act = true;
   }
   const it = items[pauseIdx];
+  if (it.id === 'diff' && (dir || act)) {
+    cycleDiff(dir || 1);
+    return;
+  }
   if (it.vol) {
     if (!dir && !act) return;
     const v = SETTINGS[it.id];
@@ -1965,8 +2027,8 @@ function updatePause(m) {
 }
 
 const MENU_Y = 88;
-const MENU = () => ['PLAY!  (1-4 PLAYERS)', 'PLAY ONLINE', 'START AT LEVEL ' + (startLevelSel + 1) + (unlocked > 1 ? '  < >' : '')];
-const LEVEL_ITEM = 2;
+const MENU = () => ['PLAY!  (1-4 PLAYERS)', 'PLAY ONLINE', 'START AT LEVEL ' + (startLevelSel + 1) + (unlocked > 1 ? '  < >' : ''), 'DIFFICULTY: ' + D().name + '  < >'];
+const LEVEL_ITEM = 2, DIFF_ITEM = 3;
 function updateTitle(dt, m) {
   titleFx += dt;
   if (Math.random() < dt * 1.5) launchFirework(rand(40, VW - 40), VH);
@@ -1975,15 +2037,18 @@ function updateTitle(dt, m) {
   if (m.up) { menuIdx = (menuIdx + n - 1) % n; SFX.hit(); }
   if (m.down) { menuIdx = (menuIdx + 1) % n; SFX.hit(); }
   if (menuIdx === LEVEL_ITEM && (m.left || m.right)) { startLevelSel = (startLevelSel + (m.right ? 1 : unlocked - 1)) % unlocked; SFX.hit(); }
+  if (menuIdx === DIFF_ITEM && (m.left || m.right)) cycleDiff(m.right ? 1 : -1);
   if (m.tap) {
     for (let i = 0; i < n; i++) if (Math.abs(m.tap.y - (MENU_Y + 4 + i * 16)) < 8) {
       if (i === LEVEL_ITEM) { startLevelSel = (startLevelSel + 1) % unlocked; menuIdx = LEVEL_ITEM; return; }
+      if (i === DIFF_ITEM) { menuIdx = DIFF_ITEM; cycleDiff(); return; }
       menuIdx = i;
     }
     if (m.tap.y < MENU_Y - 6 || m.tap.y > MENU_Y + n * 16) return; // ignore taps outside the menu
   }
   if (m.confirm && stateT > 0.3) {
     if (menuIdx === LEVEL_ITEM) { startLevelSel = (startLevelSel + 1) % unlocked; return; }
+    if (menuIdx === DIFF_ITEM) { cycleDiff(); return; }
     if (menuIdx === 1) { state = 'online'; stateT = 0; onlineIdx = 0; NET.msg = ''; netCheckHomeServer(); return; }
     openLobby(m.tap);
   }
@@ -2586,6 +2651,8 @@ function meshes() {
     gear: meshExtrude(gearPoly(36, 48, 10), 18, '#9aa5b5', '#6c7787'),
     gift: meshBox(40, 40, 40, '#ff6b9b', '#ffd34d'), ribbon: meshBox(44, 44, 8, '#ffd34d'),
     starR: meshExtrude(starPoly(48, 20), 14, '#e63946', '#a5222d'), starW: meshExtrude(starPoly(48, 20), 14, '#ffffff', '#c8c8d8'), starB: meshExtrude(starPoly(48, 20), 14, '#1d5fd8', '#14409a'),
+    crate: meshBox(56, 44, 44, '#b5543c', '#f4f4f4'), crateBand: meshBox(58, 10, 46, '#ffd34d'),
+    pinwheel: meshExtrude(starPoly(54, 18), 10, '#ff9a30', '#c8681a'),
     rocketBody: meshCylinder(9, 9, 56, 8, '#f4f4f4'), rocketTip: meshCylinder(9, 0, 22, 8, '#e63946'), rocketBand: meshCylinder(9.6, 9.6, 8, 8, '#1d5fd8'),
   };
   return MESH;
@@ -2689,6 +2756,18 @@ function scene3D(theme) {
     for (let i = 0; i < 5; i++) { const z = 400 + i * 180; objs.push({ parts: [{ m: M.gift }, { m: M.ribbon }], x: placeX(i * 690 + 120, z, cam), y: 120 + Math.sin(t + i) * 20, z, ry: t * 0.7 + i, rx: 0.4 }); }
     grid3D(cam, -30, '#ffffff', 0.3);
     render3D(objs, cam, '#ffd0c8');
+  } else if (theme === 'warehouse') { // floating firework crates, spinning pinwheels and rockets lifting off
+    for (let i = 0; i < 7; i++) {
+      const z = 500 + (i * 241) % 1200;
+      objs.push({ parts: [{ m: M.crate }, { m: M.crateBand }], x: placeX(i * 520, z, cam), y: 120 + (i * 59) % 150 + Math.sin(t * 0.8 + i) * 18, z, ry: t * 0.5 + i, rx: Math.sin(t * 0.4 + i) * 0.4 });
+    }
+    for (let i = 0; i < 5; i++) { const z = 700 + (i * 311) % 900; objs.push({ ...one(M.pinwheel, { bright: true }), x: placeX(i * 640 + 300, z, cam), y: 230 + (i * 43) % 120, z, rz: t * 3 * (i % 2 ? 1 : -1), halo: [60, '#ffb000'] }); }
+    for (let i = 0; i < 3; i++) {
+      const z = 650 + i * 260, rise = (t * 45 + i * 170) % 520;
+      objs.push({ parts: [{ m: M.rocketBody }, { m: M.rocketTip, at: [0, 39, 0] }, { m: M.rocketBand, at: [0, -10, 0] }], x: placeX(i * 700 + 120, z, cam), y: -60 + rise, z, ry: t + i, halo: [40, '#ffb000'] });
+    }
+    grid3D(cam, -30, '#ff9a30', 0.3);
+    render3D(objs, cam, '#1a1030');
   } else { // fortress: spinning red, white and blue stars and firework rockets drifting up
     const stars = [M.starR, M.starW, M.starB];
     for (let i = 0; i < 9; i++) { const z = 450 + (i * 223) % 1300; objs.push({ ...one(stars[i % 3], { bright: i % 3 === 1 }), x: placeX(i * 450, z, cam), y: 200 + (i * 61) % 180 + Math.sin(t + i) * 15, z, ry: t * 1.2 + i, s: 0.9 + (i % 2) * 0.4 }); }
@@ -2788,6 +2867,43 @@ function drawBackground() {
     }
     const off = ox * 0.5; // pipes in front
     for (let i = 0; i < 6; i++) { const pxx = wrap(i * 110 - off, VW + 110) - 55; R(pxx, 200, 90, 8, '#9e6b8e'); R(pxx, 200, 90, 2, '#c08ab0'); R(pxx + 40, 196, 10, 16, '#7a4f6e'); circle(pxx + 45, 194, 4, '#d62828'); }
+    return;
+  }
+  if (th === 'warehouse') { // night by the highway: real fireworks in the sky, a city, a bridge and the warehouses
+    skyGradient([[0, '#0b0a24'], [0.6, '#2b1846'], [1, '#5a2a4a']]);
+    for (let i = 0; i < 40; i++) R((i * 83) % VW, (i * 29) % 110, 1, 1, i % 4 ? '#fff' : '#ffd34d');
+    circle(400, 44, 16, '#fff6d8'); circle(404, 40, 4, '#efe6c0'); circle(395, 49, 3, '#efe6c0');
+    for (let k = 0; k < 3; k++) { // fireworks going off in the sky (drawn, not particles, so they cost nothing)
+      const ph = gtime * 0.45 + k * 0.37, cyc = ph % 1, n = Math.floor(ph), bx = 70 + (n * 97 + k * 151) % 300, by = 40 + k * 20;
+      const col = ['#e63946', '#ffd34d', '#7dd3ff', '#ff8ad8', '#b6ff6e'][(n + k) % 5];
+      if (cyc < 0.22) R(bx, by + 110 * (1 - cyc / 0.22), 1, 4, '#fff3b0');
+      else {
+        const k2 = (cyc - 0.22) / 0.78, r = 34 * easeOut(k2);
+        ctx.save(); ctx.globalAlpha = 1 - k2; glow(bx, by, r * 1.3, col, 0.25);
+        for (let d = 0; d < 18; d++) { const a = d / 18 * Math.PI * 2; R(bx + Math.cos(a) * r, by + Math.sin(a) * r + k2 * 8, 2, 2, d % 2 ? col : '#fff'); }
+        ctx.restore();
+      }
+    }
+    scene3D('warehouse'); // floating firework crates, pinwheels and rockets
+    const o1 = ox * 0.15; // city skyline with lit windows
+    for (let i = 0; i < 14; i++) {
+      const bx = wrap(i * 40 - o1, VW + 40) - 20, h = 40 + (i * 37) % 60;
+      R(bx, 196 - h, 34, h + 80, '#1c1838'); R(bx, 196 - h, 34, 2, '#2c2850');
+      for (let r = 0; r < h / 10; r++) for (let c = 0; c < 3; c++) if (hash(i * 5 + c, r) > 0.6) R(bx + 5 + c * 10, 202 - h + r * 10, 4, 4, '#ffd98a');
+    }
+    const o2 = ox * 0.3; // the highway bridge with cars going by
+    R(0, 176, VW, 5, '#2a2440'); R(0, 176, VW, 1, '#4a4468');
+    for (let i = 0; i < 7; i++) R(wrap(i * 90 - o2, VW + 90) - 45, 181, 6, 30, '#2a2440');
+    for (let k = 0; k < 8; k++) { const dir = k % 2 ? 1 : -1, cx = wrap(k * 70 + gtime * 70 * dir - o2, VW + 40) - 20; R(cx, 173, 5, 2, dir > 0 ? '#ff4040' : '#fff6b0'); }
+    const o3 = ox * 0.45; // the warehouses: corrugated walls, roll-up doors and a FIREWORKS sign
+    for (let i = 0; i < 5; i++) {
+      const wx = wrap(i * 150 - o3, VW + 150) - 75;
+      R(wx, 186, 120, 90, '#3a3550'); R(wx - 4, 182, 128, 5, '#4a4566');
+      for (let x = 4; x < 120; x += 6) R(wx + x, 187, 1, 90, '#332e48');
+      R(wx + 40, 206, 40, 70, '#2a2638'); for (let y = 208; y < 270; y += 5) R(wx + 40, y, 40, 1, '#353048');
+      glow(wx + 60, 204, 26, '#ffcf6a', 0.35); R(wx + 56, 201, 8, 3, '#ffe6a0');
+      R(wx + 26, 190, 68, 10, '#c0392b'); text('FIREWORKS', wx + 60, 192, { size: 4, color: '#fff', align: 'center', shadow: false });
+    }
     return;
   }
   // fortress at dusk: stars, searchlights, a castle wall and a giant flag
@@ -3188,8 +3304,9 @@ function drawHUD() {
     const name = HEROES[p.hero].name;
     text('LV' + tier(), x + 111, y + 3, { size: 4, color: '#ffd34d', align: 'right' });
     text(multi ? 'P' + (i + 1) + ' ' + name : name, x + 24, y + 3, { size: 6, color: multi ? PCOL[i] : HEROES[p.hero].color });
-    for (let h = 0; h < p.maxHp; h++) heart(x + 24 + h * 10, y + 12, h < p.hp && p.alive ? '#ff3b5c' : '#444', 1);
-    for (let s = 0; s < p.specials; s++) drawAmmoIcon(p.hero, x + 60 + s * 10, y + 11, 0.8);
+    const hs = p.maxHp > 3 ? 8 : 10, ax = x + 30 + p.maxHp * hs, as = p.maxHp > 3 ? 8 : 10;
+    for (let h = 0; h < p.maxHp; h++) heart(x + 24 + h * hs, y + 12, h < p.hp && p.alive ? '#ff3b5c' : '#444', 1);
+    for (let s = 0; s < p.specials; s++) drawAmmoIcon(p.hero, ax + s * as, y + 11, 0.8);
     if (!p.alive && p.waiting) text('WAITING', x + 24, y + 21, { size: 4, color: '#aaa' });
     if (p.shield > 0) text('SHIELD ' + Math.ceil(p.shield), x + 60, y + 21, { size: 4, color: '#fff' });
   });
@@ -3299,9 +3416,9 @@ function drawTitle() {
   ctx.globalAlpha = 0.6; R(VW / 2 - 110, MENU_Y - 4, 220, items.length * 16 + 4, '#000'); ctx.globalAlpha = 1;
   items.forEach((s, i) => {
     const sel = i === menuIdx;
-    text((sel ? '> ' : '  ') + s, VW / 2 - 100, MENU_Y + i * 16, { size: 7, color: sel ? '#ffd34d' : '#ddd' });
+    text((sel ? '> ' : '  ') + s, VW / 2 - 100, MENU_Y + i * 16, { size: 7, color: i === DIFF_ITEM ? D().color : sel ? '#ffd34d' : '#ddd' });
   });
-  const help = 'MOVE: WASD/ARROWS   JUMP: W/SPACE (x2!)   FIRE: Q   BOMB: E';
+  const help = 'MOVE: WASD/ARROWS   JUMP: W/SPACE (x2!)   FIRE: Q/CLICK   BOMB: E/RIGHT CLICK';
   ctx.globalAlpha = 0.6; R(0, 238, VW, 34, '#000'); ctx.globalAlpha = 1;
   text(help, VW / 2, 242, { size: 5, color: '#fff', align: 'center' });
   text('Hold JUMP on a wall to climb!  Up to 4 players with gamepads.  M = mute', VW / 2, 254, { size: 4, color: '#bbb', align: 'center' });
@@ -3339,8 +3456,19 @@ const STORY = [
     ['', ''],
     ['Free the plushies and the rest of the family!', '#fff'],
   ] },
-  { title: 'CHAPTER 4: LIBERTY FORTRESS', color: '#ffd34d', cast: ['andrew'], grump: true, lines: [
-    ['Every firework in America is locked inside', '#fff'],
+  { title: 'CHAPTER 4: THE FIREWORKS WAREHOUSE', color: '#ff9a30', cast: ['grandpa', 'grandma', 'allison', 'aj'], lines: [
+    ['The family is free, and now they want to help!', '#fff'],
+    ['The Grumbots are loading the stolen fireworks', '#fff'],
+    ['into trucks at a giant warehouse by the highway.', '#fff'],
+    ['', ''],
+    ['GRANDPA: "Those are for the SHOW, you rust buckets!"', '#e0a060'],
+    ['GRANDMA: "Careful, boys. Those crates go BOOM."', '#ff8ab3'],
+    ['', ''],
+    ['Pop the crates, free the last cages,', '#fff'],
+    ['and take the fireworks back!', '#7dffa0'],
+  ] },
+  { title: 'CHAPTER 5: LIBERTY FORTRESS', color: '#ffd34d', cast: ['andrew'], grump: true, lines: [
+    ['The last fireworks in America are locked inside', '#fff'],
     ['MEGA GRUMP\'s fortress. At midnight his ray will', '#fff'],
     ['cancel the Fourth of July FOREVER!', '#ff8a8a'],
     ['', ''],
