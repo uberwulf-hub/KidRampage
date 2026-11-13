@@ -25,16 +25,18 @@ func main() {
 		return
 	}
 	page := filepath.Join(filepath.Dir(exe), "index.html")
-	game := (&url.URL{Scheme: "file", Path: "/" + filepath.ToSlash(page)}).String()
+	// ?app=win tells the game it's running as an app, so its menus offer EXIT GAME.
+	game := (&url.URL{Scheme: "file", Path: "/" + filepath.ToSlash(page), RawQuery: "app=win"}).String()
 
 	for _, edge := range edgePaths() {
 		if _, err := os.Stat(edge); err != nil {
 			continue
 		}
 		// A separate profile folder keeps the game window apart from normal browsing,
-		// so it always opens as its own window with the game's size and settings.
+		// so it always opens as its own window with the game's settings. --start-fullscreen
+		// opens it full screen with no title bar (EXIT GAME in the menus, or Alt+F4, closes it).
 		profile := filepath.Join(os.Getenv("LOCALAPPDATA"), "BoomBrothers", "EdgeProfile")
-		cmd := exec.Command(edge, "--app="+game, "--user-data-dir="+profile, "--window-size=1280,760", "--no-first-run", "--autoplay-policy=no-user-gesture-required")
+		cmd := exec.Command(edge, "--app="+game, "--user-data-dir="+profile, "--start-fullscreen", "--no-first-run", "--autoplay-policy=no-user-gesture-required")
 		if cmd.Start() == nil {
 			return
 		}

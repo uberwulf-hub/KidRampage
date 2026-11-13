@@ -1980,6 +1980,7 @@ function pauseItems() {
     { id: 'bg3d', label: '3D BACKGROUNDS: ' + (SHOW_3D ? 'ON' : 'OFF') },
     { id: 'controls', label: 'CONTROLS' },
     { id: 'quit', label: sure('quit') ? 'QUIT? PRESS AGAIN' : NET.role === 'host' ? 'END ONLINE GAME' : 'QUIT TO TITLE' },
+    ...(APP ? [{ id: 'exit', label: sure('exit') ? 'EXIT? PRESS AGAIN' : 'EXIT GAME' }] : []),
   ];
   pauseItems.ids = items.map(i => i.id);
   return items;
@@ -2013,12 +2014,13 @@ function updatePause(m) {
     return;
   }
   if (!act) return;
-  if ((it.id === 'restart' || it.id === 'quit') && pauseConfirm !== pauseIdx) { pauseConfirm = pauseIdx; SFX.hit(); return; } // ask twice
+  if ((it.id === 'restart' || it.id === 'quit' || it.id === 'exit') && pauseConfirm !== pauseIdx) { pauseConfirm = pauseIdx; SFX.hit(); return; } // ask twice
   pauseConfirm = -1;
   if (it.id === 'resume') paused = false;
   else if (it.id === 'restart') { paused = false; restartLevel(); }
   else if (it.id === 'bg3d') { SHOW_3D = !SHOW_3D; SETTINGS.bg3d = SHOW_3D; saveSettings(); SFX.hit(); }
   else if (it.id === 'controls') { pauseView = 'controls'; SFX.hit(); }
+  else if (it.id === 'exit') { paused = false; exitGame(); }
   else if (it.id === 'quit') {
     paused = false; stopMusic();
     if (NET.role === 'host') netClose();
@@ -2026,9 +2028,20 @@ function updatePause(m) {
   }
 }
 
+// ---- exiting: only inside the Windows app (BoomBrothers.exe adds ?app=win) or the Android app.
+// In a normal browser tab you just close the tab, so the menus don't show EXIT there.
+const APP = new URLSearchParams(location.search).get('app') || (window.BoomApp ? 'android' : '');
+function exitGame() {
+  if (NET.ws) netClose();
+  stopMusic();
+  if (window.BoomApp && window.BoomApp.exit) { window.BoomApp.exit(); return; }
+  window.close();
+  setTimeout(() => setBanner('CLOSE THE WINDOW TO EXIT', '#fff', 3, 'Alt+F4 closes it on Windows'), 300);
+}
+
 const MENU_Y = 88;
-const MENU = () => ['PLAY!  (1-4 PLAYERS)', 'PLAY ONLINE', 'START AT LEVEL ' + (startLevelSel + 1) + (unlocked > 1 ? '  < >' : ''), 'DIFFICULTY: ' + D().name + '  < >'];
-const LEVEL_ITEM = 2, DIFF_ITEM = 3;
+const MENU = () => ['PLAY!  (1-4 PLAYERS)', 'PLAY ONLINE', 'START AT LEVEL ' + (startLevelSel + 1) + (unlocked > 1 ? '  < >' : ''), 'DIFFICULTY: ' + D().name + '  < >', ...(APP ? ['EXIT GAME'] : [])];
+const LEVEL_ITEM = 2, DIFF_ITEM = 3, EXIT_ITEM = 4;
 function updateTitle(dt, m) {
   titleFx += dt;
   if (Math.random() < dt * 1.5) launchFirework(rand(40, VW - 40), VH);
@@ -2049,6 +2062,7 @@ function updateTitle(dt, m) {
   if (m.confirm && stateT > 0.3) {
     if (menuIdx === LEVEL_ITEM) { startLevelSel = (startLevelSel + 1) % unlocked; return; }
     if (menuIdx === DIFF_ITEM) { cycleDiff(); return; }
+    if (menuIdx === EXIT_ITEM) { exitGame(); return; }
     if (menuIdx === 1) { state = 'online'; stateT = 0; onlineIdx = 0; NET.msg = ''; netCheckHomeServer(); return; }
     openLobby(m.tap);
   }

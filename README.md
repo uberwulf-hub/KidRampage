@@ -29,6 +29,9 @@ P / Esc (or the pause button at the top of the screen, or START on a gamepad) op
 restart the level, music and sound effects volume, 3D backgrounds on/off (turn them off if an older tablet
 stutters), a controls page, and quit to the title. The volume and 3D settings are remembered. M mutes everything.
 
+In the Windows app and the Android app, the game fills the whole screen with no title bar. **EXIT GAME** on the
+title screen or in the pause menu closes it (Alt+F4 works too on Windows). In a web browser you just close the tab.
+
 ## Android (phones and tablets)
 
 Each release also has `BoomBrothers-android.apk`. It's the same game in a full-screen landscape app, with big
