@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -31,6 +32,7 @@ public class MainActivity extends Activity {
         web.setWebViewClient(new WebViewClient());
         web.setWebChromeClient(new WebChromeClient());
         web.setBackgroundColor(0xFF0B0B18);
+        web.addJavascriptInterface(new BoomApp(), "BoomApp"); // lets the game's EXIT GAME close the app
         setContentView(web);
         hideSystemBars();
 
@@ -62,6 +64,14 @@ public class MainActivity extends Activity {
                 "dispatchEvent(new KeyboardEvent('keydown',{code:'Escape'}));"
                         + "setTimeout(function(){dispatchEvent(new KeyboardEvent('keyup',{code:'Escape'}))},50);",
                 null);
+    }
+
+    /** Called from the game (window.BoomApp.exit()) when someone picks EXIT GAME. */
+    public class BoomApp {
+        @JavascriptInterface
+        public void exit() {
+            runOnUiThread(new Runnable() { public void run() { finishAndRemoveTask(); } });
+        }
     }
 
     @Override
