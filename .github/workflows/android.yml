@@ -13,6 +13,7 @@
 # (keep-android-key.yml stops GitHub from clearing it).
 name: Android
 
+# No longer runs on pull requests, to save GitHub build minutes; Release builds the .apk.
 on:
   workflow_dispatch:
     inputs:
@@ -24,16 +25,13 @@ on:
       version:
         required: true
         type: string
-  pull_request:
-    paths:
-      - "android/**"
-      - "index.html"
-      - "game.js"
-      - "audio/**"
-      - ".github/workflows/android.yml"
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   android:
